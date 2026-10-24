@@ -860,6 +860,11 @@ async function recognizeCell(img, box) {
     const fullVal = toNumber(full);
     const t = String(full || "").trim();
 
+    // "0 l" 常被认成 "01" / "0l"，这种绝无可能是真值，直接归 0
+    if (/^0+\s*[1lI]$/.test(t) || /^[Oo]\s*[1lI]$/.test(t)) {
+        return { text: "0", value: 0, rect: box };
+    }
+
     // 以 1 结尾的数字，很可能是把单位 l 认成了 1
     if (!/[0-9]1$/.test(t)) return { text: full, value: fullVal, rect: box };
 
@@ -932,6 +937,28 @@ function bestTilt(items) {
 
 let dbgTilt = 0;
 
+let dbgRowMode = "";
+
+/* 用「物料名」的实际位置当行锚点：名字就画在对应那一行里，比聚类可靠 */
+function rowAnchorsFromNames(words, tanT) {
+    const anchors = new Map();
+    if (!words) return anchors;
+    for (const w of words) {
+        const t = String(w.text || "").replace(/\s+/g, "");
+        if (!t) continue;
+        for (const m of MATERIALS) {
+            if (anchors.has(m)) continue;
+            const hit = (t === m) || (t.indexOf(m) >= 0) || (ALIAS_MAP[t] === m);
+            if (!hit) continue;
+            const cx = w.x + w.w / 2;
+            const cy = w.y + w.h / 2;
+            anchors.set(m, cy - cx * tanT);
+            break;
+        }
+    }
+    return anchors;
+}
+
 /**
  * 按坐标还原表格：
  * 列用 3-means 对数字的 x 聚簇（不依赖 FSL/SL/CL 被认对），
@@ -940,9 +967,10 @@ let dbgTilt = 0;
 let dbgCols = [];
 let dbgRows = [];
 
-function rebuildTable(items) {
+function rebuildTable(items, words) {
     dbgCols = [];
     dbgRows = [];
+    dbgRowMode = "";
     if (!items || items.length < MATERIALS.length) return null;
 
     let minX = Infinity, maxX = -Infinity;
@@ -982,9 +1010,40 @@ function rebuildTable(items) {
     const tanT = Math.tan(dbgTilt * Math.PI / 180);
     const corrected = items.map(it => ({ value: it.value, x: it.x, y: it.y - it.x * tanT, h: it.h }));
 
-    // 行：表固定 7 行，直接对 y 做 k=7 的 k-means，比"按间隙切"稳
-    const rowCenters = kmeans1d(corrected.map(it => it.y), MATERIALS.length).sort((a, b) => a - b);
-    if (rowCenters.length !== MATERIALS.length) return null;
+    // 行中心：优先用「物料名」的实际 y；名字认不到时退回等距插值
+    const anchors = rowAnchorsFromNames(words, tanT);
+    let rowCenters = null;
+    if (anchors.size >= 6) {
+        const arr = MATERIALS.map(m => anchors.has(m) ? anchors.get(m) : NaN);
+        for (let i = 0; i < arr.length; i++) {
+            if (isFinite(arr[i])) continue;
+            let prev = NaN, next = NaN;
+            for (let j = i - 1; j >= 0; j--) { if (isFinite(arr[j])) { prev = arr[j]; break; } }
+            for (let j = i + 1; j < arr.length; j++) { if (isFinite(arr[j])) { next = arr[j]; break; } }
+            if (isFinite(prev) && isFinite(next)) arr[i] = (prev + next) / 2;
+            else if (isFinite(prev)) arr[i] = prev + 40;
+            else if (isFinite(next)) arr[i] = next - 40;
+        }
+        let mono = true;
+        for (let i = 1; i < arr.length; i++) if (!(arr[i] > arr[i - 1])) mono = false;
+        if (mono && arr.every(v => isFinite(v))) {
+            rowCenters = arr;
+            dbgRowMode = "物料名锚点 " + anchors.size + "/7";
+        }
+    }
+    if (!rowCenters) {
+        dbgRowMode = "等距插值";
+        const ys = corrected.map(it => it.y);
+        let yMin = Infinity, yMax = -Infinity;
+        for (const y of ys) {
+            if (y < yMin) yMin = y;
+            if (y > yMax) yMax = y;
+        }
+        const stepY = (yMax - yMin) / (MATERIALS.length - 1);
+        if (!(stepY > 1)) return null;
+        rowCenters = [];
+        for (let i = 0; i < MATERIALS.length; i++) rowCenters.push(yMin + i * stepY);
+    }
     dbgRows = rowCenters.slice();
     const rows = [];
     for (let i = 0; i < rowCenters.length; i++) rows.push([]);
@@ -1022,9 +1081,13 @@ function fillDebug(info) {
     if (!box || !pre || !info) return;
     const lines = [];
     lines.push("检测框 " + info.boxes + " 个，读出文字 " + info.words + " 段，其中数字 " + info.cells + " 个");
+    if (info.values && info.values.length) {
+        lines.push("识别到的数（从上到下、从左到右）：" + info.values.join(", "));
+    }
     lines.push("坐标还原：" + (info.rebuilt ? "成功" : "失败（退回按行文本解析）"));
     lines.push("列中心 x：" + (dbgCols.length ? dbgCols.map(v => Math.round(v)).join(" , ") : "无"));
     lines.push("倾角校正：" + Number(dbgTilt || 0).toFixed(1) + "°（行中心已按此扭正）");
+    lines.push("分行方式：" + (dbgRowMode || "无"));
     lines.push("行中心 y：" + (dbgRows.length ? dbgRows.map(v => Math.round(v)).join(" , ") : "无"));
     if (info.list && info.list.length) {
         lines.push("");
@@ -1090,7 +1153,7 @@ async function recognizeFile(file) {
         const fullText = words.map(w => w.text).join("\n");
         $("pasteInput").value = fullText;
 
-        const rebuilt = rebuildTable(cells);
+        const rebuilt = rebuildTable(cells, words);
         const hit = rebuilt ? applyParsed(rebuilt) : applyParsed(smartParseOCR(fullText));
 
         fillDebug({
@@ -1098,6 +1161,7 @@ async function recognizeFile(file) {
             words: words.length,
             cells: cells.length,
             rebuilt: !!rebuilt,
+            values: cells.map(c => c.value),
             list: cells.map(c => c.value + " @ " + Math.round(c.x) + "," + Math.round(c.y)),
             text: fullText
         });
