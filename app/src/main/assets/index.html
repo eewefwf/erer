@@ -5,13 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes">
 <meta name="theme-color" content="#2563eb">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="配方计算器">
 <meta name="format-detection" content="telephone=no">
 <title>物料配方计算器</title>
 <style>
     :root {
-        --bg: #f0f4f8; --card: #ffffff; --primary: #2563eb; --primary-hover: #1d4ed8;
+        --bg: #f0f4f8; --card: #ffffff; --primary: #2563eb;
         --dark: #0f172a; --text: #334155; --text-light: #64748b; --border: #e2e8f0;
         --badge-bg: #e6f0ff; --total-bg: #eef2ff; --total-text: #1e40af;
         --name-bg: #fff9e6; --edit-bg: #fffef5; --paste-bg: #fefce8;
@@ -76,15 +75,14 @@
     .status { display: none; font-size: 12px; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 8px 10px; margin: 10px 0 0; line-height: 1.5; white-space: pre-line; }
     .status.show { display: block; }
     .status.err { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
-    .photo-wrap { display: none; margin: 10px 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #0f172a; }
-    .photo-wrap.show { display: block; }
-    /* 和表格同宽、等比缩放：整张图铺满卡片宽度，高度按比例自适应，不裁切不变形 */
-    .photo-wrap img { width: 100%; height: auto; display: block; }
-    .photo-hint { display: none; font-size: 11px; color: var(--text-light); margin-top: 6px; text-align: right; }
-    .photo-wrap.show + .photo-hint { display: block; }
     details.debug { display: none; margin-top: 10px; font-size: 12px; color: var(--text-light); }
     details.debug summary { cursor: pointer; padding: 6px 0; color: var(--dark); font-weight: 600; }
     details.debug pre { font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-top: 6px; max-height: 260px; overflow: auto; }
+    .photo-wrap { display: none; margin: 10px 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #0f172a; }
+    .photo-wrap.show { display: block; }
+    .photo-wrap img { width: 100%; height: auto; display: block; }
+    .photo-hint { display: none; font-size: 11px; color: var(--text-light); margin-top: 6px; text-align: right; }
+    .photo-wrap.show + .photo-hint { display: block; }
     #imgModal { display: none; position: fixed; inset: 0; background: #000; z-index: 900; overflow: auto; -webkit-overflow-scrolling: touch; }
     #imgModal.show { display: block; }
     #imgModal img { width: 100%; display: block; }
@@ -97,13 +95,13 @@
     }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     details.help { margin-top: 14px; font-size: 13px; color: var(--text-light); }
-    details.help summary { cursor: pointer; font-weight: 600; color: var(--dark); padding: 6px 0; -webkit-user-select: none; user-select: none; }
+    details.help summary { cursor: pointer; font-weight: 600; color: var(--dark); padding: 6px 0; }
     details.help ol { margin: 6px 0 0 18px; line-height: 1.8; }
 </style>
 </head>
 <body>
 <div class="box">
-    <div class="title">📦 物料配方计算器 <span class="badge">PP-OCRv4 · 纯本地</span></div>
+    <div class="title">📦 物料配方计算器 <span class="badge">PP-OCRv5 · 纯本地</span></div>
 
     <div class="bar">
         <div class="input-group">
@@ -154,15 +152,16 @@
     <details class="help">
         <summary>❓ 使用说明</summary>
         <ol>
-            <li><b>识别引擎</b>：PP-OCRv4（和微信/白描同族的开源引擎），模型打包在 App 里，<b>完全离线</b>，不上传任何图片。</li>
-            <li><b>第一次识别慢一点</b>：要在手机里加载约 15MB 的模型，之后会快很多。</li>
+            <li><b>识别引擎</b>：PP-OCRv5 移动版（和微信/白描同族的开源引擎），模型打包在 App 里，<b>完全离线</b>，不上传任何图片。</li>
+            <li><b>第一次识别慢一点</b>：要在手机里加载约 22MB 模型，之后会快。</li>
             <li><b>识别不准</b>：原文都在上方文本框里，改完点「重新计算」。</li>
-            <li><b>表格还原</b>：会先找出 7 行 × 3 列的数字，按坐标填表；中文物料名认不出也不影响。</li>
+            <li><b>表格还原</b>：按物料名定位行、按数字 x 定位列，没框的格子为 0。</li>
+            <li><b>单位</b>：乳剂/尿素/增粘剂/水 是 l，MDI/热蜡/多元醇 是 kg，末尾的 1 会自动区分。</li>
         </ol>
     </details>
 </div>
 
-<div class="toast" id="toastMsg">✅ 已复制</div>
+<div class="toast" id="toastMsg">已复制</div>
 
 <div id="imgModal">
     <button class="modal-close" id="imgModalClose">关闭 ✕</button>
@@ -173,8 +172,7 @@
 <input type="file" id="fileLib" accept="image/*" hidden>
 
 <script>
-/* 全局错误显示：脚本出错时直接显示在页面上，方便截图反馈 */
-window.onerror = function (msg, src, line, col) {
+window.onerror = function (msg, src, line) {
     function show() {
         var box = document.getElementById("ocrStatus");
         if (!box) { setTimeout(show, 300); return; }
@@ -187,9 +185,7 @@ window.onerror = function (msg, src, line, col) {
 </script>
 
 <script>
-/* =========================================================
-   1. 业务配置
-   ========================================================= */
+/* ========== 1. 业务配置 ========== */
 const MATERIALS = ["MDI", "乳剂", "尿素", "增粘剂", "水", "热蜡", "多元醇"];
 const ALIAS_MAP = {
     "多元酸": "多元醇", "多元酉享": "多元醇", "多元脂": "多元醇", "多元醉": "多元醇",
@@ -199,33 +195,19 @@ const ALIAS_MAP = {
     "热腊": "热蜡", "热借": "热蜡"
 };
 const COLUMN_MAP = {
-    "MDI": [0, 1, 2],
-    "乳剂": [0, 1, 2],
-    "尿素": [1, 2],
-    "增粘剂": [0],
-    "水": [0, 1],
-    "热蜡": [0, 1, 2],
-    "多元醇": [2]
+    "MDI": [0, 1, 2], "乳剂": [0, 1, 2], "尿素": [1, 2], "增粘剂": [0],
+    "水": [0, 1], "热蜡": [0, 1, 2], "多元醇": [2]
+};
+const UNITS = {
+    "MDI": "kg", "乳剂": "l", "尿素": "l", "增粘剂": "l",
+    "水": "l", "热蜡": "kg", "多元醇": "kg"
 };
 const POLYOL_FACTOR = 0.05;
-
-/* 每种物料的单位（固定）：l 单位的行，末尾那个"1"是单位不是数字 */
-const UNITS = {
-    "MDI": "kg",
-    "乳剂": "l",
-    "尿素": "l",
-    "增粘剂": "l",
-    "水": "l",
-    "热蜡": "kg",
-    "多元醇": "kg"
-};
-const DRAFT_KEY = "formula-calc-draft-v2";
+const DRAFT_KEY = "formula-calc-draft-v3";
 
 let data = MATERIALS.map(name => ({ name, f: 0, s: 0, c: 0 }));
 
-/* =========================================================
-   2. 小工具
-   ========================================================= */
+/* ========== 2. 工具 ========== */
 const $ = id => document.getElementById(id);
 
 function getDivisor() {
@@ -250,7 +232,6 @@ function setStatus(msg, isErr) {
     el.classList.add("show");
     el.classList.toggle("err", !!isErr);
 }
-
 async function copyText(text) {
     try {
         if (navigator.clipboard && window.isSecureContext) {
@@ -269,12 +250,10 @@ async function copyText(text) {
     let ok = false;
     try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
     ta.remove();
-    showToast(ok ? "已复制 " + text : "复制失败：" + text + "（请长按数字手动复制）", ok ? 1500 : 2600);
+    showToast(ok ? "已复制 " + text : "复制失败，请长按手动复制", ok ? 1500 : 2400);
 }
 
-/* =========================================================
-   3. 文本解析（粘贴文字时用）
-   ========================================================= */
+/* ========== 3. 文本解析（粘贴时用） ========== */
 function normalizeText(raw) {
     return String(raw || "")
         .replace(/[\uFF10-\uFF19]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
@@ -282,31 +261,24 @@ function normalizeText(raw) {
         .replace(/[，、：]/g, ",")
         .replace(/MDl|MD1/g, "MDI");
 }
-
 function detectMaterials(line) {
     const found = [];
     for (const alias of Object.keys(ALIAS_MAP)) {
         if (line.includes(alias)) found.push(ALIAS_MAP[alias]);
     }
-    for (const m of MATERIALS) {
-        if (line.includes(m)) found.push(m);
-    }
+    for (const m of MATERIALS) if (line.includes(m)) found.push(m);
     return found;
 }
-
 function smartParseOCR(fullText) {
     const result = new Map();
     MATERIALS.forEach(m => result.set(m, { f: 0, s: 0, c: 0 }));
-
     const text = normalizeText(fullText);
     if (!text.trim()) return result;
 
     const lines = text.split(/\r?\n/);
     const firstLine = new Map();
     lines.forEach((line, i) => {
-        detectMaterials(line).forEach(m => {
-            if (!firstLine.has(m)) firstLine.set(m, i);
-        });
+        detectMaterials(line).forEach(m => { if (!firstLine.has(m)) firstLine.set(m, i); });
     });
 
     for (const mat of MATERIALS) {
@@ -327,15 +299,13 @@ function smartParseOCR(fullText) {
             const found = clean.match(/-?\d+(?:\.\d+)?/g) || [];
             found.forEach(s => numbers.push(parseFloat(s) || 0));
         }
-
         if (!numbers.length) continue;
 
-        // 多元醇：只认 CL 列，取"最右边"那个数（按位置，不按大小）
-        if (mat === "多元醇" && numbers.length) {
+        // 多元醇只认 CL 列，取最右边那个数（按位置，不按大小）
+        if (mat === "多元醇") {
             result.set(mat, { f: 0, s: 0, c: numbers[numbers.length - 1] });
             continue;
         }
-
         const mapping = COLUMN_MAP[mat] || [0];
         const init = { f: 0, s: 0, c: 0 };
         for (let i = 0; i < mapping.length && i < numbers.length; i++) {
@@ -348,7 +318,6 @@ function smartParseOCR(fullText) {
     }
     return result;
 }
-
 function applyParsed(parsed) {
     let hit = 0;
     MATERIALS.forEach((name, i) => {
@@ -359,15 +328,12 @@ function applyParsed(parsed) {
     return hit;
 }
 
-/* =========================================================
-   4. 渲染
-   ========================================================= */
+/* ========== 4. 渲染 ========== */
 let resTimer = null;
 function scheduleRenderRes() {
     clearTimeout(resTimer);
     resTimer = setTimeout(renderRes, 120);
 }
-
 function buildRaw() {
     const tb = $("raw");
     tb.innerHTML = "";
@@ -384,7 +350,6 @@ function buildRaw() {
             td.className = "edit-cell";
             td.contentEditable = "true";
             td.inputMode = "decimal";
-            td.setAttribute("enterkeyhint", "done");
             td.dataset.row = row;
             td.dataset.key = key;
             td.textContent = it[key];
@@ -396,12 +361,10 @@ function buildRaw() {
         total.dataset.total = row;
         total.textContent = roundTo(it.f + it.s + it.c, 4);
         tr.appendChild(total);
-
         frag.appendChild(tr);
     });
     tb.appendChild(frag);
 }
-
 function syncRow(row) {
     const cell = document.querySelector('#raw td[data-total="' + row + '"]');
     if (cell) {
@@ -409,13 +372,11 @@ function syncRow(row) {
         cell.textContent = roundTo(it.f + it.s + it.c, 4);
     }
 }
-
 function renderRes() {
     const tb = $("res");
     const div = getDivisor();
     tb.innerHTML = "";
     const frag = document.createDocumentFragment();
-
     data.forEach(it => {
         const factor = (it.name === "多元醇" ? POLYOL_FACTOR : 1);
         const calc = v => roundTo((v / div) * factor, 2);
@@ -439,15 +400,12 @@ function renderRes() {
     });
     tb.appendChild(frag);
 }
-
 function renderAll() {
     buildRaw();
     renderRes();
 }
 
-/* =========================================================
-   5. 编辑交互
-   ========================================================= */
+/* ========== 5. 编辑 ========== */
 $("raw").addEventListener("focusin", e => {
     const cell = e.target;
     if (!cell.classList || !cell.classList.contains("edit-cell")) return;
@@ -457,12 +415,10 @@ $("raw").addEventListener("focusin", e => {
     sel.removeAllRanges();
     sel.addRange(range);
 });
-
 $("raw").addEventListener("keydown", e => {
     if (!e.target.classList || !e.target.classList.contains("edit-cell")) return;
     if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
 });
-
 $("raw").addEventListener("input", e => {
     const cell = e.target;
     if (!cell.classList || !cell.classList.contains("edit-cell")) return;
@@ -474,20 +430,14 @@ $("raw").addEventListener("input", e => {
     scheduleRenderRes();
     saveDraftSoon();
 });
-
 $("raw").addEventListener("blur", e => {
     const cell = e.target;
     if (!cell.classList || !cell.classList.contains("edit-cell")) return;
-    const row = Number(cell.dataset.row);
-    const key = cell.dataset.key;
-    cell.textContent = data[row][key];
+    cell.textContent = data[Number(cell.dataset.row)][cell.dataset.key];
 }, true);
-
 $("divisor").addEventListener("input", () => { renderRes(); saveDraftSoon(); });
 
-/* =========================================================
-   6. 按钮
-   ========================================================= */
+/* ========== 6. 按钮 ========== */
 $("btnReparse").addEventListener("click", () => {
     const text = $("pasteInput").value;
     if (!text.trim()) { showToast("先在文本框里粘贴或识别配方文字"); return; }
@@ -496,23 +446,21 @@ $("btnReparse").addEventListener("click", () => {
     if (hit === 0) { showToast("没识别到物料，数据保持不变", 2400); return; }
     renderAll();
     saveDraftSoon();
-    showToast("已重新计算（识别到 " + hit + " 种物料）");
+    showToast("已重新计算（" + hit + " 种物料）");
 });
-
 $("btnReset").addEventListener("click", () => {
     if (!confirm("清空全部数据？包括文本框和保存的草稿。")) return;
     data = MATERIALS.map(name => ({ name, f: 0, s: 0, c: 0 }));
     $("pasteInput").value = "";
-    hideThumb();
+    hidePhoto();
     setStatus("");
+    $("debugBox").style.display = "none";
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
     renderAll();
     showToast("已清空");
 });
 
-/* =========================================================
-   7. 草稿
-   ========================================================= */
+/* ========== 7. 草稿 ========== */
 let draftTimer = null;
 function saveDraftSoon() {
     clearTimeout(draftTimer);
@@ -546,23 +494,67 @@ function loadDraft() {
 }
 $("pasteInput").addEventListener("input", saveDraftSoon);
 
-/* =========================================================
-   8. PP-OCRv4 引擎（onnxruntime-web，纯本地）
-   ========================================================= */
+/* ========== 8. 拍照/相册 ========== */
+let photoUrl = null;
+function showPhoto(file) {
+    if (!file) return;
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    photoUrl = URL.createObjectURL(file);
+    $("photoImg").src = photoUrl;
+    $("modalImg").src = photoUrl;
+    $("photoWrap").classList.add("show");
+}
+function hidePhoto() {
+    if (photoUrl) { URL.revokeObjectURL(photoUrl); photoUrl = null; }
+    $("photoWrap").classList.remove("show");
+    $("photoImg").removeAttribute("src");
+    $("modalImg").removeAttribute("src");
+}
+$("photoWrap").addEventListener("click", () => { $("imgModal").classList.add("show"); });
+$("imgModal").addEventListener("click", () => { $("imgModal").classList.remove("show"); });
+
+function startCamera() {
+    if (window.Android && typeof window.Android.startCameraOCR === "function") {
+        try { window.Android.startCameraOCR(); return; } catch (e) {}
+    }
+    $("fileCam").click();
+}
+$("btnCam").addEventListener("click", startCamera);
+$("btnLib").addEventListener("click", () => { $("fileLib").click(); });
+$("fileCam").addEventListener("change", e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    recognizeFile(f);
+});
+$("fileLib").addEventListener("change", e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    recognizeFile(f);
+});
+window.receiveOCRResult = function (text) {
+    $("pasteInput").value = text || "";
+    const hit = applyParsed(smartParseOCR(text));
+    renderAll();
+    saveDraftSoon();
+    setStatus("");
+    showToast(hit ? "识别成功（" + hit + " 种物料）" : "没匹配到物料，请检查文字");
+};
+
+/* ========== 9. PP-OCRv5 引擎 ========== */
 const OCR_BASE = "https://appassets.androidplatform.net/assets/ocr/";
-const DET_FILE = "ch_PP-OCRv4_det_infer.onnx";
-const REC_FILE = "ch_PP-OCRv4_rec_infer.onnx";
-const DICT_FILE = "ppocr_keys_v1.txt";
+const DET_FILE = "det.onnx";
+const REC_FILE = "rec.onnx";
+const DICT_FILE = "dict.txt";
 
 let ortLib = null;
 let detSession = null;
 let recSession = null;
 let ocrDict = [];
+let digitClasses = null;
 let enginePromise = null;
 
 function loadScriptOnce(src) {
     return new Promise((resolve, reject) => {
-        if (window.ort && src.indexOf("ort") >= 0) { resolve(); return; }
         const s = document.createElement("script");
         s.src = src;
         s.async = true;
@@ -571,7 +563,6 @@ function loadScriptOnce(src) {
         document.head.appendChild(s);
     });
 }
-
 function loadImage(file) {
     return new Promise((resolve, reject) => {
         const url = URL.createObjectURL(file);
@@ -581,13 +572,11 @@ function loadImage(file) {
         img.src = url;
     });
 }
-
 async function fetchArrayBuffer(name) {
     const res = await fetch(OCR_BASE + name);
     if (!res.ok) throw new Error("找不到模型文件：" + name);
     return await res.arrayBuffer();
 }
-
 function initEngine() {
     if (enginePromise) return enginePromise;
     enginePromise = (async () => {
@@ -609,27 +598,24 @@ function initEngine() {
             fetch(OCR_BASE + DICT_FILE)
         ]);
         if (!dictRes.ok) throw new Error("找不到字典文件：" + DICT_FILE);
-        const dictText = await dictRes.text();
-        ocrDict = dictText.split(/\r?\n/).filter(s => s.length > 0);
+        ocrDict = (await dictRes.text()).split(/\r?\n/).filter(s => s.length > 0);
+
+        digitClasses = new Set();
+        for (let i = 0; i < ocrDict.length; i++) {
+            if (/^[0-9]$/.test(ocrDict[i])) digitClasses.add(i + 1);
+        }
 
         setStatus("正在初始化检测模型…");
-        detSession = await ortLib.InferenceSession.create(detBuf, {
-            executionProviders: ["wasm"],
-            graphOptimizationLevel: "all"
-        });
-
+        detSession = await ortLib.InferenceSession.create(detBuf, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
         setStatus("正在初始化识别模型…");
-        recSession = await ortLib.InferenceSession.create(recBuf, {
-            executionProviders: ["wasm"],
-            graphOptimizationLevel: "all"
-        });
+        recSession = await ortLib.InferenceSession.create(recBuf, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
         setStatus("");
     })();
     enginePromise.catch(() => { enginePromise = null; });
     return enginePromise;
 }
 
-/* 连通域：把检测概率图切成一个个文字块 */
+/* 连通域：把检测概率图切成文字块 */
 function connectedBoxes(mask, h, w, boxThresh, prob) {
     const visited = new Uint8Array(h * w);
     const stack = new Int32Array(h * w);
@@ -657,10 +643,7 @@ function connectedBoxes(mask, h, w, boxThresh, prob) {
                     const nx = x + dx;
                     if (nx < 0 || nx >= w) continue;
                     const q = ny * w + nx;
-                    if (mask[q] && !visited[q]) {
-                        visited[q] = 1;
-                        stack[sp++] = q;
-                    }
+                    if (mask[q] && !visited[q]) { visited[q] = 1; stack[sp++] = q; }
                 }
             }
         }
@@ -671,7 +654,6 @@ function connectedBoxes(mask, h, w, boxThresh, prob) {
     return boxes;
 }
 
-/* 检测：整图 → 文字框（原图坐标） */
 async function detectBoxes(img) {
     const maxSide = 960;
     const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
@@ -710,7 +692,6 @@ async function detectBoxes(img) {
     const raw = connectedBoxes(mask, oh, ow, 0.5, prob);
     const sx = img.width / ow;
     const sy = img.height / oh;
-
     const boxes = [];
     for (const b of raw) {
         let x1 = b.x1 * sx, y1 = b.y1 * sy, x2 = b.x2 * sx, y2 = b.y2 * sy;
@@ -729,8 +710,7 @@ async function detectBoxes(img) {
     return boxes;
 }
 
-/* 识别：单个文字块 → 字符串 */
-function ctcDecode(data, dims) {
+function ctcDecode(data, dims, allowed) {
     const T = dims[dims.length - 2];
     const C = dims[dims.length - 1];
     let text = "";
@@ -740,6 +720,7 @@ function ctcDecode(data, dims) {
         let best = 0;
         let bv = -Infinity;
         for (let c = 0; c < C; c++) {
+            if (allowed && c !== 0 && !allowed.has(c)) continue;
             const v = data[base + c];
             if (v > bv) { bv = v; best = c; }
         }
@@ -752,7 +733,7 @@ function ctcDecode(data, dims) {
     return text;
 }
 
-async function recRegion(img, box) {
+async function recRaw(img, box) {
     const H = 48;
     let W = Math.round(H * box.w / Math.max(1, box.h));
     W = Math.min(720, Math.max(16, W));
@@ -766,20 +747,41 @@ async function recRegion(img, box) {
 
     const area = W * H;
     const input = new Float32Array(3 * area);
+
+    // 低对比度增强
+    let mn = 255, mx = 0;
+    for (let i = 0; i < src.length; i += 4) {
+        const g = src[i] * 0.299 + src[i + 1] * 0.587 + src[i + 2] * 0.114;
+        if (g < mn) mn = g;
+        if (g > mx) mx = g;
+    }
+    const range = Math.max(1, mx - mn);
+    const stretch = range < 110;
+
     for (let i = 0, p = 0; i < src.length; i += 4, p++) {
-        input[p] = (src[i] / 255 - 0.5) / 0.5;
-        input[p + area] = (src[i + 1] / 255 - 0.5) / 0.5;
-        input[p + 2 * area] = (src[i + 2] / 255 - 0.5) / 0.5;
+        let r = src[i], g = src[i + 1], b = src[i + 2];
+        if (stretch) {
+            r = (r - mn) * 255 / range;
+            g = (g - mn) * 255 / range;
+            b = (b - mn) * 255 / range;
+        }
+        input[p] = (r / 255 - 0.5) / 0.5;
+        input[p + area] = (g / 255 - 0.5) / 0.5;
+        input[p + 2 * area] = (b / 255 - 0.5) / 0.5;
     }
 
     const feeds = {};
     feeds[recSession.inputNames[0]] = new ortLib.Tensor("float32", input, [1, 3, H, W]);
     const out = await recSession.run(feeds);
     const o = out[recSession.outputNames[0]];
-    return ctcDecode(o.data, o.dims);
+    return { data: o.data, dims: o.dims };
 }
 
-/* 灰度 + Otsu，用来做竖直投影切分「数字 / 单位」 */
+async function recRegion(img, box) {
+    const r = await recRaw(img, box);
+    return ctcDecode(r.data, r.dims, null);
+}
+
 function cropGray(img, r) {
     const w = Math.max(1, Math.round(r.w));
     const h = Math.max(1, Math.round(r.h));
@@ -823,10 +825,7 @@ function toNumber(text) {
     return isFinite(v) ? v : null;
 }
 
-/**
- * 把「数字 + 单位」的框切开。
- * 单位 l 常被认成 1，和数字粘成 14801（其实是 1480 l），数值会放大 10 倍。
- */
+/* 切分「数字 + 单位」 */
 function splitUnit(img, box) {
     const g = cropGray(img, box);
     const w = g.w, h = g.h, gray = g.gray;
@@ -865,18 +864,23 @@ function splitUnit(img, box) {
     };
 }
 
-/* 一个文字块 → { text, value, rect } */
 async function recognizeCell(img, box) {
-    const full = await recRegion(img, box);
+    const raw = await recRaw(img, box);
+    const allText = ctcDecode(raw.data, raw.dims, null);
+    let full = allText;
+    if (digitClasses && digitClasses.size) {
+        const digitText = ctcDecode(raw.data, raw.dims, digitClasses);
+        const dCount = (digitText.match(/\d/g) || []).length;
+        const aCount = (allText.match(/\d/g) || []).length;
+        const endsWithUnit = /(kg|l|ml|g)\s*$/i.test(allText.trim());
+        if (dCount >= 2 && aCount >= 2 && !endsWithUnit) full = digitText;
+    }
     const fullVal = toNumber(full);
     const t = String(full || "").trim();
 
-    // "0 l" 常被认成 "01" / "0l"，这种绝无可能是真值，直接归 0
     if (/^0+\s*[1lI]$/.test(t) || /^[Oo]\s*[1lI]$/.test(t)) {
         return { text: "0", value: 0, rect: box, ambiguous: false };
     }
-
-    // 以 1 结尾的数字，很可能是把单位 l 认成了 1
     if (!/[0-9]1$/.test(t)) return { text: full, value: fullVal, rect: box, ambiguous: false };
 
     const s = splitUnit(img, box);
@@ -887,24 +891,13 @@ async function recognizeCell(img, box) {
     const mainVal = toNumber(mainTxt);
     if (mainVal === null) return { text: full, value: fullVal, rect: box, ambiguous: false };
 
-    // 尾巴是两个以上字母（kg / ml 之类）→ 肯定是单位，直接采信切分
     const u = String(unitTxt || "").trim();
     if (/[a-zA-Z]/.test(u) && !/^[lIi|]$/.test(u)) {
         return { text: mainTxt, value: mainVal, rect: s.main, ambiguous: false };
     }
-
-    // 尾巴是 1 / l / I 这种分不清的 → 交给"整行单位"来裁决
-    return {
-        text: mainTxt,
-        value: mainVal,
-        altValue: fullVal,
-        unit: u,
-        ambiguous: true,
-        rect: s.main
-    };
+    return { text: mainTxt, value: mainVal, altValue: fullVal, unit: u, ambiguous: true, rect: s.main };
 }
 
-/* 一维 k-means：把数值分成 k 簇 */
 function kmeans1d(values, k) {
     const sorted = values.slice().sort((a, b) => a - b);
     if (sorted.length <= k) return sorted.slice();
@@ -936,7 +929,6 @@ function kmeans1d(values, k) {
     return centers;
 }
 
-/* 估计照片倾角：把每个数字的 y 减去 x*tan(θ)，找让 7 行最"紧"的角度 */
 function bestTilt(items) {
     let bestDeg = 0, bestScore = Infinity;
     for (let deg = -6; deg <= 6.0001; deg += 0.5) {
@@ -958,11 +950,6 @@ function bestTilt(items) {
     return bestDeg;
 }
 
-let dbgTilt = 0;
-
-let dbgRowMode = "";
-
-/* 用「物料名」的实际位置当行锚点：名字就画在对应那一行里，比聚类可靠 */
 function rowAnchorsFromNames(words, tanT) {
     const anchors = new Map();
     if (!words) return anchors;
@@ -973,26 +960,22 @@ function rowAnchorsFromNames(words, tanT) {
             if (anchors.has(m)) continue;
             const hit = (t === m) || (t.indexOf(m) >= 0) || (ALIAS_MAP[t] === m);
             if (!hit) continue;
-            const cx = w.x + w.w / 2;
-            const cy = w.y + w.h / 2;
-            anchors.set(m, cy - cx * tanT);
+            anchors.set(m, (w.y + w.h / 2) - (w.x + w.w / 2) * tanT);
             break;
         }
     }
     return anchors;
 }
 
-/**
- * 按坐标还原表格：
- * 列用 3-means 对数字的 x 聚簇（不依赖 FSL/SL/CL 被认对），
- * 行用纵向区间重叠聚簇，最后按物料固定顺序对应。
- */
 let dbgCols = [];
 let dbgRows = [];
+let dbgTilt = 0;
+let dbgRowMode = "";
 
 function rebuildTable(items, words) {
     dbgCols = [];
     dbgRows = [];
+    dbgTilt = 0;
     dbgRowMode = "";
     if (!items || items.length < MATERIALS.length) return null;
 
@@ -1028,7 +1011,6 @@ function rebuildTable(items, words) {
     const colX = [centers[order[0]], centers[order[1]], centers[order[2]]].sort((a, b) => a - b);
     dbgCols = colX.slice();
 
-    // 先估倾角、把 y 扭正，再分行（照片轻微倾斜会让同一行的左格落到下一行）
     dbgTilt = bestTilt(items);
     const tanT = Math.tan(dbgTilt * Math.PI / 180);
     const corrected = items.map(it => ({
@@ -1041,7 +1023,7 @@ function rebuildTable(items, words) {
         h: it.h
     }));
 
-    // 行中心：优先用「物料名」的实际 y；名字认不到时退回等距插值
+    // 行中心：优先用物料名的实际 y
     const anchors = rowAnchorsFromNames(words, tanT);
     let rowCenters = null;
     if (anchors.size >= 6) {
@@ -1049,8 +1031,8 @@ function rebuildTable(items, words) {
         for (let i = 0; i < arr.length; i++) {
             if (isFinite(arr[i])) continue;
             let prev = NaN, next = NaN;
-            for (let j = i - 1; j >= 0; j--) { if (isFinite(arr[j])) { prev = arr[j]; break; } }
-            for (let j = i + 1; j < arr.length; j++) { if (isFinite(arr[j])) { next = arr[j]; break; } }
+            for (let j = i - 1; j >= 0; j--) if (isFinite(arr[j])) { prev = arr[j]; break; }
+            for (let j = i + 1; j < arr.length; j++) if (isFinite(arr[j])) { next = arr[j]; break; }
             if (isFinite(prev) && isFinite(next)) arr[i] = (prev + next) / 2;
             else if (isFinite(prev)) arr[i] = prev + 40;
             else if (isFinite(next)) arr[i] = next - 40;
@@ -1076,6 +1058,7 @@ function rebuildTable(items, words) {
         for (let i = 0; i < MATERIALS.length; i++) rowCenters.push(yMin + i * stepY);
     }
     dbgRows = rowCenters.slice();
+
     const rows = [];
     for (let i = 0; i < rowCenters.length; i++) rows.push([]);
     for (const it of corrected) {
@@ -1087,23 +1070,13 @@ function rebuildTable(items, words) {
         rows[bi].push(it);
     }
 
-    // 整行单位投票（兜底）：这行出现过 kg，说明"以 1 结尾"里的 1 是数字
-    for (const row of rows) {
-        const isKg = row.some(c => /[kKgG]/.test(String(c.unit || "")));
-        if (!isKg) continue;
-        for (const c of row) {
-            if (c.ambiguous && c.altValue !== undefined && c.altValue !== null) c.value = c.altValue;
-        }
-    }
-
     const out = new Map();
     MATERIALS.forEach((m, i) => {
         const cell = { f: 0, s: 0, c: 0 };
-        const isL = UNITS[m] === "l";   // 这行的单位是不是 l
+        const isL = UNITS[m] === "l";
         for (const n of rows[i]) {
             let v = n.value;
             if (n.ambiguous) {
-                // l 单位：末尾的 1 是单位，用切开后的值；kg 单位：那个 1 是数字，用原值
                 if (!isL && n.altValue !== undefined && n.altValue !== null) v = n.altValue;
             }
             let bi = 0, bd = Infinity;
@@ -1120,19 +1093,16 @@ function rebuildTable(items, words) {
     return out;
 }
 
-/* 诊断信息：识别出错时把这块截图给我 */
 function fillDebug(info) {
     const box = $("debugBox");
     const pre = $("debugText");
     if (!box || !pre || !info) return;
     const lines = [];
     lines.push("检测框 " + info.boxes + " 个，读出文字 " + info.words + " 段，其中数字 " + info.cells + " 个");
-    if (info.values && info.values.length) {
-        lines.push("识别到的数（从上到下、从左到右）：" + info.values.join(", "));
-    }
+    if (info.values && info.values.length) lines.push("识别到的数：" + info.values.join(", "));
     lines.push("坐标还原：" + (info.rebuilt ? "成功" : "失败（退回按行文本解析）"));
     lines.push("列中心 x：" + (dbgCols.length ? dbgCols.map(v => Math.round(v)).join(" , ") : "无"));
-    lines.push("倾角校正：" + Number(dbgTilt || 0).toFixed(1) + "°（行中心已按此扭正）");
+    lines.push("倾角校正：" + Number(dbgTilt || 0).toFixed(1) + "°");
     lines.push("分行方式：" + (dbgRowMode || "无"));
     lines.push("行中心 y：" + (dbgRows.length ? dbgRows.map(v => Math.round(v)).join(" , ") : "无"));
     if (info.list && info.list.length) {
@@ -1147,7 +1117,7 @@ function fillDebug(info) {
     box.style.display = "block";
 }
 
-/* 主流程 */
+/* ========== 10. 主流程 ========== */
 async function recognizeFile(file) {
     if (!file) return;
     if (!file.type || !file.type.startsWith("image/")) {
@@ -1159,7 +1129,6 @@ async function recognizeFile(file) {
     try {
         const img = await loadImage(file);
         showPhoto(file);
-
         await initEngine();
 
         setStatus("正在检测文字区域…");
@@ -1168,7 +1137,6 @@ async function recognizeFile(file) {
             setStatus("没检测到文字。正对表格、离近一点、开灯再拍一次。", true);
             return;
         }
-
         boxes.sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2) || a.x - b.x);
 
         const words = [];
@@ -1236,66 +1204,7 @@ async function recognizeFile(file) {
     }
 }
 
-/* =========================================================
-   9. 相机 / 相册
-   ========================================================= */
-let photoUrl = null;
-function showPhoto(file) {
-    if (!file) return;
-    if (photoUrl) URL.revokeObjectURL(photoUrl);
-    photoUrl = URL.createObjectURL(file);
-    $("photoImg").src = photoUrl;
-    $("modalImg").src = photoUrl;
-    $("photoWrap").classList.add("show");
-}
-function hideThumb() {
-    if (photoUrl) { URL.revokeObjectURL(photoUrl); photoUrl = null; }
-    $("photoWrap").classList.remove("show");
-    $("photoImg").removeAttribute("src");
-    $("modalImg").removeAttribute("src");
-}
-$("photoWrap").addEventListener("click", () => { $("imgModal").classList.add("show"); });
-$("imgModal").addEventListener("click", () => { $("imgModal").classList.remove("show"); });
-
-function startCamera() {
-    if (window.Android && typeof window.Android.startCameraOCR === "function") {
-        try { window.Android.startCameraOCR(); return; } catch (e) {}
-    }
-    $("fileCam").click();
-}
-
-$("btnCam").addEventListener("click", startCamera);
-$("btnLib").addEventListener("click", () => {
-    if (window.Android && typeof window.Android.pickImageOCR === "function") {
-        try { window.Android.pickImageOCR(); return; } catch (e) {}
-    }
-    $("fileLib").click();
-});
-
-$("fileCam").addEventListener("change", e => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = "";
-    recognizeFile(f);
-});
-$("fileLib").addEventListener("change", e => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = "";
-    recognizeFile(f);
-});
-
-/* 兼容原生壳回调 */
-window.receiveOCRResult = function (text) {
-    $("pasteInput").value = text || "";
-    const hit = applyParsed(smartParseOCR(text));
-    renderAll();
-    saveDraftSoon();
-    setStatus("");
-    showToast(hit ? "识别成功（" + hit + " 种物料）" : "没匹配到物料，请检查文字");
-};
-
-/* =========================================================
-   10. 启动
-   ========================================================= */
+/* ========== 11. 启动 ========== */
 (function init() {
     const restored = loadDraft();
     renderAll();
