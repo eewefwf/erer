@@ -91,7 +91,7 @@
     <div class="title">📦 物料配方计算器 <span class="badge">白描分享版</span></div>
 
     <div class="hint">
-        用法：白描/布丁识别完 → 点「分享」→ 选「文字」→ 选本应用，文字会自动填进来。
+        用法：白描/布丁识别完 → 点「分享」→ 选「文字」→ 选本应用，文字会自动填进来并算完。
     </div>
 
     <div class="bar">
@@ -100,9 +100,12 @@
             <input type="number" class="input" id="divisor" value="100" step="0.01" inputmode="decimal">
         </div>
         <span class="chip">⚡ 多元醇×0.05</span>
+    </div>
+
+    <div class="bar">
         <select id="tailMode" style="font-size:12px;padding:8px 10px;border:1px solid var(--border);border-radius:30px;background:#f8fafc;color:var(--text);">
-            <option value="smart">结尾处理：智能判断</option>
-            <option value="cut">结尾处理：l 行一律砍位</option>
+            <option value="cut" selected>结尾处理：l 行砍末位（推荐）</option>
+            <option value="smart">结尾处理：智能判断（单位可能缺失时）</option>
         </select>
     </div>
 
@@ -114,8 +117,8 @@
 
     <div class="status" id="ocrStatus"></div>
 
-    <div class="section-title">📋 识别文字 <small>可手动修改后点「解析并计算」</small></div>
-    <textarea class="paste-box" id="pasteInput" placeholder="白描/布丁识别后「分享 → 文字」会出现在这里，也可以直接粘贴。&#10;&#10;示例：&#10;MDI  2690 kg  2659 kg  1413 kg&#10;乳剂  10281  925↓  610I&#10;尿素  127/  01&#10;&#10;自动清掉 ↓ / I / 多余空格；l 单位行末尾的 1 会被当成单位去掉；没框的格子为 0。" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+    <div class="section-title">📋 识别文字 <small>改完点「解析并计算」或按 Ctrl+Enter</small></div>
+    <textarea class="paste-box" id="pasteInput" placeholder="白描/布丁识别后「分享 → 文字」会出现在这里，也可以直接粘贴。&#10;&#10;示例：&#10;MDI  2690 kg  2659 kg  1413 kg&#10;乳剂  10281  925↓  610I&#10;尿素  127/  01&#10;&#10;规则：先去掉空格；乳剂/尿素/增粘剂/水 再去掉最后一位；其余只去单位符号；没框的格子为 0。" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
 
     <div class="section-title">✏️ 原始数据 <small>点数字可直接改</small></div>
     <div class="table-scroll">
@@ -137,9 +140,11 @@
         <summary>❓ 使用说明</summary>
         <ol>
             <li><b>识别交给白描</b>：本应用不做拍照识别，识别由白描/布丁完成，结果通过「分享 → 文字」送过来。</li>
-            <li><b>解析规则</b>：每行「物料名 + 数字」，数字按顺序对应 FSL / SL / CL。</li>
-            <li><b>没框的格子</b>会填 0；<b>单位</b>会自动去掉（乳剂/尿素/增粘剂/水 是 l，其余 kg）。</li>
-            <li><b>换算</b>：结果 = 原值 ÷ 除数；多元醇再 ×0.05。</li>
+            <li><b>每行一个小框</b>：一行里的数字就是那一格的数。</li>
+            <li><b>去空格</b>：<code>8774 1</code> → <code>87741</code>。</li>
+            <li><b>四项砍末位</b>：乳剂/尿素/增粘剂/水 的末位一定是单位（l 可能被认成 1、I、↓、7 等），直接砍掉。</li>
+            <li><b>其余只去单位符号</b>：MDI/热蜡/多元醇 的 kg 等字母直接忽略。</li>
+            <li><b>换算</b>：结果 = 原值 ÷ 除数；多元醇再 ×0.05，四舍五入保留 2 位。</li>
         </ol>
     </details>
 </div>
@@ -171,14 +176,10 @@ const COLUMN_MAP = {
     "MDI": [0, 1, 2], "乳剂": [0, 1, 2], "尿素": [1, 2], "增粘剂": [0],
     "水": [0, 1], "热蜡": [0, 1, 2], "多元醇": [2]
 };
+/* l 单位的四个物料：末位是单位，直接砍 */
+const CUT_TAIL = new Set(["乳剂", "尿素", "增粘剂", "水"]);
 const POLYOL_FACTOR = 0.05;
-
-/* 每种物料的单位：l 单位的行，末尾那个 1 是单位不是数字 */
-const UNITS = {
-    "MDI": "kg", "乳剂": "l", "尿素": "l", "增粘剂": "l",
-    "水": "l", "热蜡": "kg", "多元醇": "kg"
-};
-const DRAFT_KEY = "formula-calc-share-v1";
+const DRAFT_KEY = "formula-calc-share-v2";
 
 let data = MATERIALS.map(name => ({ name, f: 0, s: 0, c: 0 }));
 
@@ -245,61 +246,32 @@ function detectMaterials(line) {
     return found;
 }
 
-/* 字母被认成数字时的常见混淆（不含 k/g，避免把 kg 这类型单位算成数字） */
-const CONFUSABLE = {
-    "O": "0", "o": "0", "D": "0", "Q": "0",
-    "I": "1", "l": "1", "|": "1", "i": "1",
-    "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2"
-};
-
 /**
- * 一行文字 → 这一格里可能出现的数值
- * 处理 OCR 常见脏字符：353 1（数字+单位）、1981（198+l）、112I、01（0+l）、925↓、127/、1O28
+ * 一行文字（= 一个小框）→ 这一格的数值
+ * ① 先去掉所有空格   ② 四项（l 单位）砍末位   ③ 其余只保留数字
  */
-function cellValues(line, unit, mode) {
-    const toks = String(line).split(/[\s,，、/\\|]+/).filter(Boolean);
+function cellValues(line, mat, mode) {
+    const merged = String(line).replace(/\s+/g, "");
+    const runs = merged.match(/\d+(?:\.\d+)?[^\d]*/g) || [];
     const out = [];
-    for (const raw of toks) {
-        let tok = raw.trim();
-        if (!tok) continue;
-
-        // 单独一个 1 / l / I 就是单位
-        if (/^[1lI|]$/.test(tok)) {
-            if (unit === "l") continue;
+    for (const r of runs) {
+        let body = r;
+        const isL = CUT_TAIL.has(mat);
+        if (isL) {
+            const shouldCut = (mode === "cut") || (mode === "smart" && (
+                /[^\d]$/.test(body) || (/^\d+1$/.test(body) && body.length >= 4)
+            ));
+            if (shouldCut) {
+                if (body.length <= 1) continue;
+                body = body.slice(0, -1);
+            }
         }
-
-        // 末尾挂着单位字母（610I、925l）：前面的数字够多就把它当单位切掉
-        const endUnit = tok.match(/^(.*[0-9])[lIi|L]+$/);
-        if (endUnit && (endUnit[1].match(/[0-9]/g) || []).length >= 2) tok = endUnit[1];
-
-        // 一个数字都没有的 token（kg、FSL、SL 之类）直接跳过，别做字母→数字转换
-        if (!/[0-9]/.test(tok)) continue;
-
-        // 逐字符清洗：数字留下，混淆字母变数字，其余噪声（↓ / 箭头 / 引号）直接丢
-        let digits = "";
-        for (const ch of tok) {
-            if (/[0-9.]/.test(ch)) { digits += ch; continue; }
-            if (CONFUSABLE[ch]) digits += CONFUSABLE[ch];
-        }
-        if (!digits) continue;
-
-        // 0 l 被认成 01 / 0l
-        if (/^0+1$/.test(digits)) { out.push(0); continue; }
-
-        // 198 l 被认成 1981（只对 l 单位、且至少 4 位的）
-        if (unit === "l" && /^\d+1$/.test(digits) && digits.length >= 4) {
-            digits = digits.slice(0, -1);
-        }
-        // 手动模式：l 行一律砍掉末位（白描经常把单位整个漏掉时用这个）
-        if (mode === "cut" && unit === "l" && /[0-9]$/.test(digits) && digits.length >= 2) {
-            digits = digits.slice(0, -1);
-        }
-
-        const n = parseFloat(digits);
+        const n = parseFloat(body.replace(/[^\d.]/g, ""));
         if (isFinite(n)) out.push(n);
     }
     return out;
 }
+
 function parseText(fullText) {
     const result = new Map();
     MATERIALS.forEach(m => result.set(m, { f: 0, s: 0, c: 0 }));
@@ -307,19 +279,18 @@ function parseText(fullText) {
     if (!text.trim()) return result;
 
     const lines = text.split(/\r?\n/);
-    const mode = ($("tailMode") && $("tailMode").value) || "smart";
+    const mode = ($("tailMode") && $("tailMode").value) || "cut";
     const firstLine = new Map();
     lines.forEach((line, i) => {
         detectMaterials(line).forEach(m => { if (!firstLine.has(m)) firstLine.set(m, i); });
     });
 
-    // 多元醇固定是最后一行，OCR 常把它的标签排在数字之后：
-    // 先记下"标签前面最后一个数"，并从正文里划掉，避免被上一行抢走
+    // 多元醇固定最后一行，OCR 常把它的标签排在数字之后：先记下"标签前最后一个数"
     let polyolFallback = null, polyolLine = -1;
     const polyolStart = firstLine.get("多元醇");
     if (polyolStart !== undefined) {
         for (let i = polyolStart - 1; i >= 0; i--) {
-            const vals = cellValues(lines[i], UNITS["多元醇"], mode);
+            const vals = cellValues(lines[i], "多元醇", mode);
             if (vals.length) {
                 polyolFallback = vals[vals.length - 1];
                 polyolLine = i;
@@ -344,7 +315,7 @@ function parseText(fullText) {
             for (const alias of Object.keys(ALIAS_MAP)) {
                 if (ALIAS_MAP[alias] === mat) clean = clean.split(alias).join("");
             }
-            cellValues(clean, UNITS[mat], mode).forEach(v => numbers.push(v));
+            cellValues(clean, mat, mode).forEach(v => numbers.push(v));
         }
         if (!numbers.length && mat !== "多元醇") continue;
 
@@ -354,6 +325,7 @@ function parseText(fullText) {
             result.set(mat, { f: 0, s: 0, c: c });
             continue;
         }
+
         const mapping = COLUMN_MAP[mat] || [0];
         const init = { f: 0, s: 0, c: 0 };
         for (let i = 0; i < mapping.length && i < numbers.length; i++) {
@@ -481,6 +453,7 @@ $("raw").addEventListener("blur", e => {
     cell.textContent = data[Number(cell.dataset.row)][cell.dataset.key];
 }, true);
 $("divisor").addEventListener("input", () => { renderRes(); saveDraftSoon(); });
+$("tailMode").addEventListener("change", () => { saveDraftSoon(); showToast("已切换，重新点「解析并计算」生效"); });
 
 /* ========== 按钮 ========== */
 function doParse(silent) {
@@ -493,7 +466,7 @@ function doParse(silent) {
     renderAll();
     saveDraftSoon();
     if (hit === 0) {
-        setStatus("没认出物料名。检查一下文字里有没有 MDI / 乳剂 / 尿素 这些名字，改完再点「解析并计算」。", true);
+        setStatus("没认出物料名。检查文字里有没有 MDI / 乳剂 / 尿素 这些名字，改完再点「解析并计算」。", true);
     } else {
         setStatus("");
     }
@@ -546,7 +519,8 @@ function saveDraftSoon() {
     draftTimer = setTimeout(() => {
         try {
             localStorage.setItem(DRAFT_KEY, JSON.stringify({
-                data, divisor: $("divisor").value, text: $("pasteInput").value, at: Date.now()
+                data, divisor: $("divisor").value,
+                text: $("pasteInput").value, mode: $("tailMode").value, at: Date.now()
             }));
         } catch (e) {}
     }, 400);
@@ -568,6 +542,7 @@ function loadDraft() {
         }
         if (typeof d.divisor === "number" || typeof d.divisor === "string") $("divisor").value = d.divisor;
         if (typeof d.text === "string") $("pasteInput").value = d.text;
+        if (typeof d.mode === "string") $("tailMode").value = d.mode;
         return true;
     } catch (e) { return false; }
 }
