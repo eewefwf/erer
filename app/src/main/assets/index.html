@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes">
 <meta name="theme-color" content="#2563eb">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="配方计算器">
 <meta name="format-detection" content="telephone=no">
 <title>物料配方计算器</title>
 <style>
@@ -23,11 +22,15 @@
         background: var(--bg); padding: 10px 10px calc(16px + env(safe-area-inset-bottom));
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
         -webkit-tap-highlight-color: transparent; color: var(--text);
-        min-height: 100vh; min-height: 100dvh; overscroll-behavior-y: contain;
+        min-height: 100vh; min-height: 100dvh;
     }
     .box { background: var(--card); border-radius: 20px; padding: 16px 14px; box-shadow: var(--shadow); max-width: 720px; margin: 0 auto; }
     .title { font-size: 19px; font-weight: 700; margin-bottom: 6px; color: var(--dark); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .badge { background: var(--badge-bg); font-size: 11px; padding: 3px 10px; border-radius: 20px; color: var(--primary); font-weight: 500; }
+    .hint {
+        font-size: 12px; line-height: 1.6; color: #1d4ed8; background: #eff6ff;
+        border: 1px solid #bfdbfe; border-radius: 10px; padding: 9px 11px; margin: 8px 0 4px;
+    }
     .bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; align-items: center; }
     .input-group { display: flex; align-items: center; gap: 7px; background: #f8fafc; padding: 4px 12px; border-radius: 40px; border: 1px solid var(--border); }
     .input { width: 96px; padding: 9px 4px; border: none; text-align: center; font-size: 16px; font-weight: 600; background: transparent; outline: none; color: var(--dark); font-variant-numeric: tabular-nums; }
@@ -35,19 +38,17 @@
     .btn {
         min-height: 44px; padding: 11px 16px; border: none; border-radius: 40px; font-size: 14px; font-weight: 600;
         display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
-        transition: transform .12s, background .12s; -webkit-user-select: none; user-select: none;
+        transition: transform .12s; -webkit-user-select: none; user-select: none;
     }
     .btn:active { transform: scale(0.96); }
-    .btn:disabled { opacity: .5; }
     .btn--primary { background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.25); }
-    .btn--dark { background: #1e293b; color: #fff; }
     .btn--ghost { background: #f1f5f9; color: #334155; border: 1px solid var(--border); }
     .btn--danger { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; }
     .section-title { font-size: 14px; font-weight: 700; margin: 16px 0 8px; color: var(--dark); display: flex; align-items: center; gap: 6px; }
     .section-title::before { content: ''; width: 4px; height: 16px; border-radius: 2px; background: var(--primary); flex: none; }
     .section-title small { font-weight: 400; font-size: 11px; color: var(--text-light); margin-left: auto; }
     .paste-box {
-        width: 100%; min-height: 96px; border: 1.5px solid #cbd5e1; border-radius: var(--radius);
+        width: 100%; min-height: 110px; border: 1.5px solid #cbd5e1; border-radius: var(--radius);
         padding: 12px; font-size: 13px; background: var(--paste-bg); font-family: ui-monospace, Menlo, monospace;
         resize: vertical; color: #422006; line-height: 1.5;
     }
@@ -60,33 +61,19 @@
     .table th, .table td { border-bottom: 1px solid #e8ecf1; border-right: 1px solid #e8ecf1; padding: 10px 7px; text-align: center; }
     .table tr:last-child td { border-bottom: none; }
     .table th:last-child, .table td:last-child { border-right: none; }
-    .table th { background: #f8fafc; font-weight: 700; font-size: 11px; color: #475569; position: sticky; top: 0; z-index: 1; }
+    .table th { background: #f8fafc; font-weight: 700; font-size: 11px; color: #475569; }
     .table .name {
         background: var(--name-bg); font-weight: 700; text-align: left; padding-left: 12px; color: #5c4b1f;
         position: sticky; left: 0; z-index: 2; min-width: var(--name-w); width: var(--name-w);
     }
-    .table th.name { z-index: 3; background: #fdf6dd; }
     .table .total-cell { background: var(--total-bg); font-weight: 700; color: var(--total-text); font-variant-numeric: tabular-nums; }
     .table .edit-cell { background: var(--edit-bg); outline: none; font-variant-numeric: tabular-nums; min-width: 62px; }
     .table .edit-cell:focus { background: #fff; box-shadow: inset 0 0 0 2px var(--primary); border-radius: 4px; }
     .table .copy-cell { cursor: pointer; background: #fff; font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
     .table .copy-cell:active { background: #dbeafe; }
-    .table .copy-cell.total-cell:active { background: #c7d2fe; }
     .status { display: none; font-size: 12px; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 8px 10px; margin: 10px 0 0; line-height: 1.5; white-space: pre-line; }
     .status.show { display: block; }
     .status.err { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
-    details.debug { display: none; margin-top: 10px; font-size: 12px; color: var(--text-light); }
-    details.debug summary { cursor: pointer; padding: 6px 0; color: var(--dark); font-weight: 600; }
-    details.debug pre { font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-top: 6px; max-height: 260px; overflow: auto; }
-    .photo-wrap { display: none; margin: 10px 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #0f172a; }
-    .photo-wrap.show { display: block; }
-    .photo-wrap img { width: 100%; height: auto; display: block; }
-    .photo-hint { display: none; font-size: 11px; color: var(--text-light); margin-top: 6px; text-align: right; }
-    .photo-wrap.show + .photo-hint { display: block; }
-    #imgModal { display: none; position: fixed; inset: 0; background: #000; z-index: 900; overflow: auto; -webkit-overflow-scrolling: touch; }
-    #imgModal.show { display: block; }
-    #imgModal img { width: 100%; display: block; }
-    #imgModal .modal-close { position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 12px; background: rgba(255,255,255,.18); color: #fff; border: none; border-radius: 20px; padding: 8px 14px; font-size: 14px; z-index: 901; }
     .toast {
         position: fixed; left: 50%; transform: translateX(-50%) translateY(10px);
         bottom: calc(24px + env(safe-area-inset-bottom)); background: #1e293b; color: #fff;
@@ -101,7 +88,11 @@
 </head>
 <body>
 <div class="box">
-    <div class="title">📦 物料配方计算器 <span class="badge">PP-OCRv5 · 纯本地</span></div>
+    <div class="title">📦 物料配方计算器 <span class="badge">白描分享版</span></div>
+
+    <div class="hint">
+        用法：白描/布丁识别完 → 点「分享」→ 选「文字」→ 选本应用，文字会自动填进来。
+    </div>
 
     <div class="bar">
         <div class="input-group">
@@ -109,24 +100,22 @@
             <input type="number" class="input" id="divisor" value="100" step="0.01" inputmode="decimal">
         </div>
         <span class="chip">⚡ 多元醇×0.05</span>
+        <select id="tailMode" style="font-size:12px;padding:8px 10px;border:1px solid var(--border);border-radius:30px;background:#f8fafc;color:var(--text);">
+            <option value="smart">结尾处理：智能判断</option>
+            <option value="cut">结尾处理：l 行一律砍位</option>
+        </select>
     </div>
 
     <div class="bar">
-        <button class="btn btn--primary" id="btnCam">📷 拍照识别</button>
-        <button class="btn btn--ghost" id="btnLib">🖼️ 相册</button>
-        <button class="btn btn--dark" id="btnReparse">🔍 重新计算</button>
+        <button class="btn btn--primary" id="btnReparse">🔍 解析并计算</button>
+        <button class="btn btn--ghost" id="btnShare">📤 分享结果</button>
         <button class="btn btn--danger" id="btnReset">🗑️ 清空</button>
     </div>
 
     <div class="status" id="ocrStatus"></div>
 
-    <details class="debug" id="debugBox">
-        <summary>🔍 识别诊断（识别出错时点开截图给我）</summary>
-        <pre id="debugText"></pre>
-    </details>
-
-    <div class="section-title">📋 识别结果 <small>可手动修改后点「重新计算」</small></div>
-    <textarea class="paste-box" id="pasteInput" placeholder="点【拍照识别】或【相册】自动填入；也可以把布丁/微信识别出来的文字直接粘贴到这里，再点「重新计算」。" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+    <div class="section-title">📋 识别文字 <small>可手动修改后点「解析并计算」</small></div>
+    <textarea class="paste-box" id="pasteInput" placeholder="白描/布丁识别后「分享 → 文字」会出现在这里，也可以直接粘贴。&#10;&#10;示例：&#10;MDI  2690 kg  2659 kg  1413 kg&#10;乳剂  10281  925↓  610I&#10;尿素  127/  01&#10;&#10;自动清掉 ↓ / I / 多余空格；l 单位行末尾的 1 会被当成单位去掉；没框的格子为 0。" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
 
     <div class="section-title">✏️ 原始数据 <small>点数字可直接改</small></div>
     <div class="table-scroll">
@@ -135,11 +124,6 @@
             <tbody id="raw"></tbody>
         </table>
     </div>
-
-    <div class="photo-wrap" id="photoWrap">
-        <img id="photoImg" alt="拍摄的原图">
-    </div>
-    <div class="photo-hint">👆 与上方表格同宽等比显示 · 点图片全屏放大</div>
 
     <div class="section-title">⚖️ 换算结果 <small>点数字复制 · 保留 2 位</small></div>
     <div class="table-scroll">
@@ -152,40 +136,29 @@
     <details class="help">
         <summary>❓ 使用说明</summary>
         <ol>
-            <li><b>识别引擎</b>：PP-OCRv5 移动版（和微信/白描同族的开源引擎），模型打包在 App 里，<b>完全离线</b>，不上传任何图片。</li>
-            <li><b>第一次识别慢一点</b>：要在手机里加载约 22MB 模型，之后会快。</li>
-            <li><b>识别不准</b>：原文都在上方文本框里，改完点「重新计算」。</li>
-            <li><b>表格还原</b>：按物料名定位行、按数字 x 定位列，没框的格子为 0。</li>
-            <li><b>单位</b>：乳剂/尿素/增粘剂/水 是 l，MDI/热蜡/多元醇 是 kg，末尾的 1 会自动区分。</li>
+            <li><b>识别交给白描</b>：本应用不做拍照识别，识别由白描/布丁完成，结果通过「分享 → 文字」送过来。</li>
+            <li><b>解析规则</b>：每行「物料名 + 数字」，数字按顺序对应 FSL / SL / CL。</li>
+            <li><b>没框的格子</b>会填 0；<b>单位</b>会自动去掉（乳剂/尿素/增粘剂/水 是 l，其余 kg）。</li>
+            <li><b>换算</b>：结果 = 原值 ÷ 除数；多元醇再 ×0.05。</li>
         </ol>
     </details>
 </div>
 
 <div class="toast" id="toastMsg">已复制</div>
 
-<div id="imgModal">
-    <button class="modal-close" id="imgModalClose">关闭 ✕</button>
-    <img id="modalImg" alt="原图">
-</div>
-
-<input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
-<input type="file" id="fileLib" accept="image/*" hidden>
-
 <script>
 window.onerror = function (msg, src, line) {
-    function show() {
-        var box = document.getElementById("ocrStatus");
-        if (!box) { setTimeout(show, 300); return; }
+    var box = document.getElementById("ocrStatus");
+    if (box) {
         box.textContent = "脚本错误：" + msg + "（第 " + line + " 行）";
         box.className = "status show err";
     }
-    show();
     return false;
 };
 </script>
 
 <script>
-/* ========== 1. 业务配置 ========== */
+/* ========== 配置 ========== */
 const MATERIALS = ["MDI", "乳剂", "尿素", "增粘剂", "水", "热蜡", "多元醇"];
 const ALIAS_MAP = {
     "多元酸": "多元醇", "多元酉享": "多元醇", "多元脂": "多元醇", "多元醉": "多元醇",
@@ -198,16 +171,18 @@ const COLUMN_MAP = {
     "MDI": [0, 1, 2], "乳剂": [0, 1, 2], "尿素": [1, 2], "增粘剂": [0],
     "水": [0, 1], "热蜡": [0, 1, 2], "多元醇": [2]
 };
+const POLYOL_FACTOR = 0.05;
+
+/* 每种物料的单位：l 单位的行，末尾那个 1 是单位不是数字 */
 const UNITS = {
     "MDI": "kg", "乳剂": "l", "尿素": "l", "增粘剂": "l",
     "水": "l", "热蜡": "kg", "多元醇": "kg"
 };
-const POLYOL_FACTOR = 0.05;
-const DRAFT_KEY = "formula-calc-draft-v3";
+const DRAFT_KEY = "formula-calc-share-v1";
 
 let data = MATERIALS.map(name => ({ name, f: 0, s: 0, c: 0 }));
 
-/* ========== 2. 工具 ========== */
+/* ========== 工具 ========== */
 const $ = id => document.getElementById(id);
 
 function getDivisor() {
@@ -223,7 +198,7 @@ function showToast(msg, ms) {
     t.textContent = msg;
     t.classList.add("show");
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => t.classList.remove("show"), ms || 1700);
+    showToast._t = setTimeout(() => t.classList.remove("show"), ms || 1800);
 }
 function setStatus(msg, isErr) {
     const el = $("ocrStatus");
@@ -253,7 +228,7 @@ async function copyText(text) {
     showToast(ok ? "已复制 " + text : "复制失败，请长按手动复制", ok ? 1500 : 2400);
 }
 
-/* ========== 3. 文本解析（粘贴时用） ========== */
+/* ========== 解析 ========== */
 function normalizeText(raw) {
     return String(raw || "")
         .replace(/[\uFF10-\uFF19]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
@@ -269,17 +244,89 @@ function detectMaterials(line) {
     for (const m of MATERIALS) if (line.includes(m)) found.push(m);
     return found;
 }
-function smartParseOCR(fullText) {
+
+/* 字母被认成数字时的常见混淆（不含 k/g，避免把 kg 这类型单位算成数字） */
+const CONFUSABLE = {
+    "O": "0", "o": "0", "D": "0", "Q": "0",
+    "I": "1", "l": "1", "|": "1", "i": "1",
+    "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2"
+};
+
+/**
+ * 一行文字 → 这一格里可能出现的数值
+ * 处理 OCR 常见脏字符：353 1（数字+单位）、1981（198+l）、112I、01（0+l）、925↓、127/、1O28
+ */
+function cellValues(line, unit, mode) {
+    const toks = String(line).split(/[\s,，、/\\|]+/).filter(Boolean);
+    const out = [];
+    for (const raw of toks) {
+        let tok = raw.trim();
+        if (!tok) continue;
+
+        // 单独一个 1 / l / I 就是单位
+        if (/^[1lI|]$/.test(tok)) {
+            if (unit === "l") continue;
+        }
+
+        // 末尾挂着单位字母（610I、925l）：前面的数字够多就把它当单位切掉
+        const endUnit = tok.match(/^(.*[0-9])[lIi|L]+$/);
+        if (endUnit && (endUnit[1].match(/[0-9]/g) || []).length >= 2) tok = endUnit[1];
+
+        // 一个数字都没有的 token（kg、FSL、SL 之类）直接跳过，别做字母→数字转换
+        if (!/[0-9]/.test(tok)) continue;
+
+        // 逐字符清洗：数字留下，混淆字母变数字，其余噪声（↓ / 箭头 / 引号）直接丢
+        let digits = "";
+        for (const ch of tok) {
+            if (/[0-9.]/.test(ch)) { digits += ch; continue; }
+            if (CONFUSABLE[ch]) digits += CONFUSABLE[ch];
+        }
+        if (!digits) continue;
+
+        // 0 l 被认成 01 / 0l
+        if (/^0+1$/.test(digits)) { out.push(0); continue; }
+
+        // 198 l 被认成 1981（只对 l 单位、且至少 4 位的）
+        if (unit === "l" && /^\d+1$/.test(digits) && digits.length >= 4) {
+            digits = digits.slice(0, -1);
+        }
+        // 手动模式：l 行一律砍掉末位（白描经常把单位整个漏掉时用这个）
+        if (mode === "cut" && unit === "l" && /[0-9]$/.test(digits) && digits.length >= 2) {
+            digits = digits.slice(0, -1);
+        }
+
+        const n = parseFloat(digits);
+        if (isFinite(n)) out.push(n);
+    }
+    return out;
+}
+function parseText(fullText) {
     const result = new Map();
     MATERIALS.forEach(m => result.set(m, { f: 0, s: 0, c: 0 }));
     const text = normalizeText(fullText);
     if (!text.trim()) return result;
 
     const lines = text.split(/\r?\n/);
+    const mode = ($("tailMode") && $("tailMode").value) || "smart";
     const firstLine = new Map();
     lines.forEach((line, i) => {
         detectMaterials(line).forEach(m => { if (!firstLine.has(m)) firstLine.set(m, i); });
     });
+
+    // 多元醇固定是最后一行，OCR 常把它的标签排在数字之后：
+    // 先记下"标签前面最后一个数"，并从正文里划掉，避免被上一行抢走
+    let polyolFallback = null, polyolLine = -1;
+    const polyolStart = firstLine.get("多元醇");
+    if (polyolStart !== undefined) {
+        for (let i = polyolStart - 1; i >= 0; i--) {
+            const vals = cellValues(lines[i], UNITS["多元醇"], mode);
+            if (vals.length) {
+                polyolFallback = vals[vals.length - 1];
+                polyolLine = i;
+                break;
+            }
+        }
+    }
 
     for (const mat of MATERIALS) {
         const start = firstLine.get(mat);
@@ -287,6 +334,7 @@ function smartParseOCR(fullText) {
 
         const numbers = [];
         for (let i = start; i < lines.length; i++) {
+            if (i === polyolLine) continue;
             const line = lines[i];
             if (i !== start) {
                 const others = detectMaterials(line).filter(m => m !== mat);
@@ -296,14 +344,14 @@ function smartParseOCR(fullText) {
             for (const alias of Object.keys(ALIAS_MAP)) {
                 if (ALIAS_MAP[alias] === mat) clean = clean.split(alias).join("");
             }
-            const found = clean.match(/-?\d+(?:\.\d+)?/g) || [];
-            found.forEach(s => numbers.push(parseFloat(s) || 0));
+            cellValues(clean, UNITS[mat], mode).forEach(v => numbers.push(v));
         }
-        if (!numbers.length) continue;
+        if (!numbers.length && mat !== "多元醇") continue;
 
-        // 多元醇只认 CL 列，取最右边那个数（按位置，不按大小）
         if (mat === "多元醇") {
-            result.set(mat, { f: 0, s: 0, c: numbers[numbers.length - 1] });
+            const c = numbers.length ? numbers[numbers.length - 1]
+                                     : (polyolFallback !== null ? polyolFallback : 0);
+            result.set(mat, { f: 0, s: 0, c: c });
             continue;
         }
         const mapping = COLUMN_MAP[mat] || [0];
@@ -328,11 +376,11 @@ function applyParsed(parsed) {
     return hit;
 }
 
-/* ========== 4. 渲染 ========== */
+/* ========== 渲染 ========== */
 let resTimer = null;
 function scheduleRenderRes() {
     clearTimeout(resTimer);
-    resTimer = setTimeout(renderRes, 120);
+    resTimer = setTimeout(renderRes, 100);
 }
 function buildRaw() {
     const tb = $("raw");
@@ -367,10 +415,7 @@ function buildRaw() {
 }
 function syncRow(row) {
     const cell = document.querySelector('#raw td[data-total="' + row + '"]');
-    if (cell) {
-        const it = data[row];
-        cell.textContent = roundTo(it.f + it.s + it.c, 4);
-    }
+    if (cell) cell.textContent = roundTo(data[row].f + data[row].s + data[row].c, 4);
 }
 function renderRes() {
     const tb = $("res");
@@ -405,7 +450,7 @@ function renderAll() {
     renderRes();
 }
 
-/* ========== 5. 编辑 ========== */
+/* ========== 编辑 ========== */
 $("raw").addEventListener("focusin", e => {
     const cell = e.target;
     if (!cell.classList || !cell.classList.contains("edit-cell")) return;
@@ -437,30 +482,64 @@ $("raw").addEventListener("blur", e => {
 }, true);
 $("divisor").addEventListener("input", () => { renderRes(); saveDraftSoon(); });
 
-/* ========== 6. 按钮 ========== */
-$("btnReparse").addEventListener("click", () => {
+/* ========== 按钮 ========== */
+function doParse(silent) {
     const text = $("pasteInput").value;
-    if (!text.trim()) { showToast("先在文本框里粘贴或识别配方文字"); return; }
-    const parsed = smartParseOCR(text);
-    const hit = applyParsed(parsed);
-    if (hit === 0) { showToast("没识别到物料，数据保持不变", 2400); return; }
+    if (!text.trim()) {
+        if (!silent) showToast("先粘贴或接收识别文字");
+        return 0;
+    }
+    const hit = applyParsed(parseText(text));
     renderAll();
     saveDraftSoon();
-    showToast("已重新计算（" + hit + " 种物料）");
+    if (hit === 0) {
+        setStatus("没认出物料名。检查一下文字里有没有 MDI / 乳剂 / 尿素 这些名字，改完再点「解析并计算」。", true);
+    } else {
+        setStatus("");
+    }
+    return hit;
+}
+$("btnReparse").addEventListener("click", () => {
+    const hit = doParse(false);
+    if (hit > 0) showToast("已解析（" + hit + " 种物料）");
 });
+
+function buildShareText() {
+    const div = getDivisor();
+    const lines = [];
+    lines.push("物料\tFSL\tSL\tCL\t合计");
+    data.forEach(it => {
+        const factor = (it.name === "多元醇" ? POLYOL_FACTOR : 1);
+        const calc = v => roundTo((v / div) * factor, 2);
+        const f = calc(it.f), s = calc(it.s), c = calc(it.c);
+        const total = roundTo(f + s + c, 2);
+        lines.push([it.name, f.toFixed(2), s.toFixed(2), c.toFixed(2), total.toFixed(2)].join("\t"));
+    });
+    lines.push("除数：" + div);
+    return lines.join("\n");
+}
+$("btnShare").addEventListener("click", () => {
+    const sum = data.reduce((acc, it) => acc + it.f + it.s + it.c, 0);
+    if (sum === 0) { showToast("还没有数据"); return; }
+    const text = buildShareText();
+    if (window.AndroidApp && typeof window.AndroidApp.shareText === "function") {
+        try { window.AndroidApp.shareText(text); return; } catch (e) {}
+    }
+    if (navigator.share) { navigator.share({ text: text }).catch(() => {}); return; }
+    copyText(text);
+});
+
 $("btnReset").addEventListener("click", () => {
-    if (!confirm("清空全部数据？包括文本框和保存的草稿。")) return;
+    if (!confirm("清空全部数据？包括文字和草稿。")) return;
     data = MATERIALS.map(name => ({ name, f: 0, s: 0, c: 0 }));
     $("pasteInput").value = "";
-    hidePhoto();
     setStatus("");
-    $("debugBox").style.display = "none";
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
     renderAll();
     showToast("已清空");
 });
 
-/* ========== 7. 草稿 ========== */
+/* ========== 草稿 ========== */
 let draftTimer = null;
 function saveDraftSoon() {
     clearTimeout(draftTimer);
@@ -493,722 +572,34 @@ function loadDraft() {
     } catch (e) { return false; }
 }
 $("pasteInput").addEventListener("input", saveDraftSoon);
-
-/* ========== 8. 拍照/相册 ========== */
-let photoUrl = null;
-function showPhoto(file) {
-    if (!file) return;
-    if (photoUrl) URL.revokeObjectURL(photoUrl);
-    photoUrl = URL.createObjectURL(file);
-    $("photoImg").src = photoUrl;
-    $("modalImg").src = photoUrl;
-    $("photoWrap").classList.add("show");
-}
-function hidePhoto() {
-    if (photoUrl) { URL.revokeObjectURL(photoUrl); photoUrl = null; }
-    $("photoWrap").classList.remove("show");
-    $("photoImg").removeAttribute("src");
-    $("modalImg").removeAttribute("src");
-}
-$("photoWrap").addEventListener("click", () => { $("imgModal").classList.add("show"); });
-$("imgModal").addEventListener("click", () => { $("imgModal").classList.remove("show"); });
-
-function startCamera() {
-    if (window.Android && typeof window.Android.startCameraOCR === "function") {
-        try { window.Android.startCameraOCR(); return; } catch (e) {}
+$("pasteInput").addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        $("btnReparse").click();
     }
-    $("fileCam").click();
-}
-$("btnCam").addEventListener("click", startCamera);
-$("btnLib").addEventListener("click", () => { $("fileLib").click(); });
-$("fileCam").addEventListener("change", e => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = "";
-    recognizeFile(f);
 });
-$("fileLib").addEventListener("change", e => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = "";
-    recognizeFile(f);
-});
+
+/* ========== 接收分享 ========== */
 window.receiveOCRResult = function (text) {
-    $("pasteInput").value = text || "";
-    const hit = applyParsed(smartParseOCR(text));
+    const t = text || "";
+    $("pasteInput").value = t;
+    const hit = applyParsed(parseText(t));
     renderAll();
     saveDraftSoon();
-    setStatus("");
-    showToast(hit ? "识别成功（" + hit + " 种物料）" : "没匹配到物料，请检查文字");
+    if (hit > 0) {
+        setStatus("");
+        showToast("已接收：" + hit + " 种物料，自动算完", 2200);
+    } else {
+        setStatus("收到文字了，但没认出物料名。原文在上面，改完点「解析并计算」。", true);
+        showToast("收到文字，但没认出物料", 2400);
+    }
 };
 
-/* ========== 9. PP-OCRv5 引擎 ========== */
-const OCR_BASE = "https://appassets.androidplatform.net/assets/ocr/";
-const DET_FILE = "det.onnx";
-const REC_FILE = "rec.onnx";
-const DICT_FILE = "dict.txt";
-
-let ortLib = null;
-let detSession = null;
-let recSession = null;
-let ocrDict = [];
-let digitClasses = null;
-let enginePromise = null;
-
-function loadScriptOnce(src) {
-    return new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = src;
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error("引擎脚本加载失败：" + src));
-        document.head.appendChild(s);
-    });
-}
-function loadImage(file) {
-    return new Promise((resolve, reject) => {
-        const url = URL.createObjectURL(file);
-        const img = new Image();
-        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
-        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("图片读取失败")); };
-        img.src = url;
-    });
-}
-async function fetchArrayBuffer(name) {
-    const res = await fetch(OCR_BASE + name);
-    if (!res.ok) throw new Error("找不到模型文件：" + name);
-    return await res.arrayBuffer();
-}
-function initEngine() {
-    if (enginePromise) return enginePromise;
-    enginePromise = (async () => {
-        setStatus("正在加载识别引擎…");
-        await loadScriptOnce(OCR_BASE + "ort.min.js");
-        if (!window.ort) throw new Error("onnxruntime 未就绪（assets/ocr/ort.min.js）");
-        ortLib = window.ort;
-        try {
-            ortLib.env.wasm.wasmPaths = OCR_BASE;
-            ortLib.env.wasm.numThreads = 1;
-            ortLib.env.wasm.simd = true;
-            ortLib.env.logLevel = "error";
-        } catch (e) {}
-
-        setStatus("正在读取模型文件…");
-        const [detBuf, recBuf, dictRes] = await Promise.all([
-            fetchArrayBuffer(DET_FILE),
-            fetchArrayBuffer(REC_FILE),
-            fetch(OCR_BASE + DICT_FILE)
-        ]);
-        if (!dictRes.ok) throw new Error("找不到字典文件：" + DICT_FILE);
-        ocrDict = (await dictRes.text()).split(/\r?\n/).filter(s => s.length > 0);
-
-        digitClasses = new Set();
-        for (let i = 0; i < ocrDict.length; i++) {
-            if (/^[0-9]$/.test(ocrDict[i])) digitClasses.add(i + 1);
-        }
-
-        setStatus("正在初始化检测模型…");
-        detSession = await ortLib.InferenceSession.create(detBuf, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
-        setStatus("正在初始化识别模型…");
-        recSession = await ortLib.InferenceSession.create(recBuf, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
-        setStatus("");
-    })();
-    enginePromise.catch(() => { enginePromise = null; });
-    return enginePromise;
-}
-
-/* 连通域：把检测概率图切成文字块 */
-function connectedBoxes(mask, h, w, boxThresh, prob) {
-    const visited = new Uint8Array(h * w);
-    const stack = new Int32Array(h * w);
-    const boxes = [];
-    for (let i = 0; i < h * w; i++) {
-        if (!mask[i] || visited[i]) continue;
-        let sp = 0;
-        stack[sp++] = i;
-        visited[i] = 1;
-        let minx = w, miny = h, maxx = 0, maxy = 0, cnt = 0, sum = 0;
-        while (sp > 0) {
-            const p = stack[--sp];
-            const x = p % w;
-            const y = (p - x) / w;
-            cnt++;
-            sum += prob[p];
-            if (x < minx) minx = x;
-            if (x > maxx) maxx = x;
-            if (y < miny) miny = y;
-            if (y > maxy) maxy = y;
-            for (let dy = -1; dy <= 1; dy++) {
-                const ny = y + dy;
-                if (ny < 0 || ny >= h) continue;
-                for (let dx = -1; dx <= 1; dx++) {
-                    const nx = x + dx;
-                    if (nx < 0 || nx >= w) continue;
-                    const q = ny * w + nx;
-                    if (mask[q] && !visited[q]) { visited[q] = 1; stack[sp++] = q; }
-                }
-            }
-        }
-        if (cnt < 8) continue;
-        if (sum / cnt < boxThresh) continue;
-        boxes.push({ x1: minx, y1: miny, x2: maxx + 1, y2: maxy + 1 });
-    }
-    return boxes;
-}
-
-async function detectBoxes(img) {
-    const maxSide = 960;
-    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-    const w = Math.max(32, Math.round(img.width * scale / 32) * 32);
-    const h = Math.max(32, Math.round(img.height * scale / 32) * 32);
-
-    const cv = document.createElement("canvas");
-    cv.width = w;
-    cv.height = h;
-    const ctx = cv.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(img, 0, 0, w, h);
-    const src = ctx.getImageData(0, 0, w, h).data;
-
-    const area = w * h;
-    const input = new Float32Array(3 * area);
-    const mean = [0.485, 0.456, 0.406];
-    const std = [0.229, 0.224, 0.225];
-    for (let i = 0, p = 0; i < src.length; i += 4, p++) {
-        input[p] = (src[i] / 255 - mean[0]) / std[0];
-        input[p + area] = (src[i + 1] / 255 - mean[1]) / std[1];
-        input[p + 2 * area] = (src[i + 2] / 255 - mean[2]) / std[2];
-    }
-
-    const feeds = {};
-    feeds[detSession.inputNames[0]] = new ortLib.Tensor("float32", input, [1, 3, h, w]);
-    const out = await detSession.run(feeds);
-    const o = out[detSession.outputNames[0]];
-    const dims = o.dims;
-    const oh = dims[dims.length - 2];
-    const ow = dims[dims.length - 1];
-    const prob = o.data;
-
-    const mask = new Uint8Array(oh * ow);
-    for (let i = 0; i < oh * ow; i++) mask[i] = prob[i] > 0.3 ? 1 : 0;
-
-    const raw = connectedBoxes(mask, oh, ow, 0.5, prob);
-    const sx = img.width / ow;
-    const sy = img.height / oh;
-    const boxes = [];
-    for (const b of raw) {
-        let x1 = b.x1 * sx, y1 = b.y1 * sy, x2 = b.x2 * sx, y2 = b.y2 * sy;
-        let bw = x2 - x1, bh = y2 - y1;
-        if (bw < 4 || bh < 4) continue;
-        const d = (bw * bh * 1.5) / (2 * (bw + bh));
-        x1 = Math.max(0, x1 - d);
-        y1 = Math.max(0, y1 - d);
-        x2 = Math.min(img.width, x2 + d);
-        y2 = Math.min(img.height, y2 + d);
-        bw = x2 - x1;
-        bh = y2 - y1;
-        if (bw < 6 || bh < 6) continue;
-        boxes.push({ x: x1, y: y1, w: bw, h: bh });
-    }
-    return boxes;
-}
-
-function ctcDecode(data, dims, allowed) {
-    const T = dims[dims.length - 2];
-    const C = dims[dims.length - 1];
-    let text = "";
-    let last = -1;
-    for (let t = 0; t < T; t++) {
-        const base = t * C;
-        let best = 0;
-        let bv = -Infinity;
-        for (let c = 0; c < C; c++) {
-            if (allowed && c !== 0 && !allowed.has(c)) continue;
-            const v = data[base + c];
-            if (v > bv) { bv = v; best = c; }
-        }
-        if (best === 0) { last = 0; continue; }
-        if (best === last) { last = best; continue; }
-        last = best;
-        if (best - 1 < ocrDict.length) text += ocrDict[best - 1];
-        else text += " ";
-    }
-    return text;
-}
-
-async function recRaw(img, box) {
-    const H = 48;
-    let W = Math.round(H * box.w / Math.max(1, box.h));
-    W = Math.min(720, Math.max(16, W));
-
-    const cv = document.createElement("canvas");
-    cv.width = W;
-    cv.height = H;
-    const ctx = cv.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, W, H);
-    const src = ctx.getImageData(0, 0, W, H).data;
-
-    const area = W * H;
-    const input = new Float32Array(3 * area);
-
-    // 低对比度增强
-    let mn = 255, mx = 0;
-    for (let i = 0; i < src.length; i += 4) {
-        const g = src[i] * 0.299 + src[i + 1] * 0.587 + src[i + 2] * 0.114;
-        if (g < mn) mn = g;
-        if (g > mx) mx = g;
-    }
-    const range = Math.max(1, mx - mn);
-    const stretch = range < 110;
-
-    for (let i = 0, p = 0; i < src.length; i += 4, p++) {
-        let r = src[i], g = src[i + 1], b = src[i + 2];
-        if (stretch) {
-            r = (r - mn) * 255 / range;
-            g = (g - mn) * 255 / range;
-            b = (b - mn) * 255 / range;
-        }
-        input[p] = (r / 255 - 0.5) / 0.5;
-        input[p + area] = (g / 255 - 0.5) / 0.5;
-        input[p + 2 * area] = (b / 255 - 0.5) / 0.5;
-    }
-
-    const feeds = {};
-    feeds[recSession.inputNames[0]] = new ortLib.Tensor("float32", input, [1, 3, H, W]);
-    const out = await recSession.run(feeds);
-    const o = out[recSession.outputNames[0]];
-    return { data: o.data, dims: o.dims };
-}
-
-async function recRegion(img, box) {
-    const r = await recRaw(img, box);
-    return ctcDecode(r.data, r.dims, null);
-}
-
-function cropGray(img, r) {
-    const w = Math.max(1, Math.round(r.w));
-    const h = Math.max(1, Math.round(r.h));
-    const cv = document.createElement("canvas");
-    cv.width = w;
-    cv.height = h;
-    const ctx = cv.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(img, r.x, r.y, r.w, r.h, 0, 0, w, h);
-    const d = ctx.getImageData(0, 0, w, h).data;
-    const gray = new Uint8ClampedArray(w * h);
-    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-        gray[p] = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-    }
-    return { gray: gray, w: w, h: h };
-}
-
-function otsuOf(gray) {
-    const hist = new Float64Array(256);
-    for (let i = 0; i < gray.length; i++) hist[gray[i] | 0]++;
-    const n = gray.length;
-    let sum = 0;
-    for (let t = 0; t < 256; t++) sum += t * hist[t];
-    let sumB = 0, wB = 0, best = 0, thr = 128;
-    for (let t = 0; t < 256; t++) {
-        wB += hist[t];
-        if (!wB) continue;
-        const wF = n - wB;
-        if (!wF) break;
-        sumB += t * hist[t];
-        const mB = sumB / wB, mF = (sum - sumB) / wF;
-        const v = wB * wF * (mB - mF) * (mB - mF);
-        if (v > best) { best = v; thr = t; }
-    }
-    return thr;
-}
-
-function toNumber(text) {
-    const s = String(text || "").replace(/[^\d.]/g, "");
-    if (!s) return null;
-    const v = parseFloat(s);
-    return isFinite(v) ? v : null;
-}
-
-/* 切分「数字 + 单位」 */
-function splitUnit(img, box) {
-    const g = cropGray(img, box);
-    const w = g.w, h = g.h, gray = g.gray;
-    if (w < 40 || h < 8) return { main: box, unit: null };
-
-    const thr = otsuOf(gray);
-    const ink = new Int32Array(w);
-    for (let x = 0; x < w; x++) {
-        let c = 0;
-        for (let y = 0; y < h; y++) if (gray[y * w + x] < thr) c++;
-        ink[x] = c;
-    }
-    const minInk = Math.max(1, Math.round(h * 0.06));
-
-    let x = w - 1;
-    while (x >= 0 && ink[x] < minInk) x--;
-    if (x < 0) return { main: box, unit: null };
-    const unitRight = x;
-    while (x >= 0 && ink[x] >= minInk) x--;
-    const unitLeft = x + 1;
-    const gapEnd = x;
-    while (x >= 0 && ink[x] < minInk) x--;
-    const mainRight = x;
-
-    const unitW = unitRight - unitLeft + 1;
-    const gapW = gapEnd - mainRight;
-    if (mainRight < w * 0.45) return { main: box, unit: null };
-    if (unitW > w * 0.4) return { main: box, unit: null };
-    if (gapW < 1) return { main: box, unit: null };
-
-    const cutPx = mainRight + 1;
-    const sx = box.w / w;
-    return {
-        main: { x: box.x, y: box.y, w: Math.max(8, cutPx * sx), h: box.h },
-        unit: { x: box.x + cutPx * sx, y: box.y, w: Math.max(4, (w - cutPx) * sx), h: box.h }
-    };
-}
-
-async function recognizeCell(img, box) {
-    const raw = await recRaw(img, box);
-    const allText = ctcDecode(raw.data, raw.dims, null);
-    let full = allText;
-    if (digitClasses && digitClasses.size) {
-        const digitText = ctcDecode(raw.data, raw.dims, digitClasses);
-        const dCount = (digitText.match(/\d/g) || []).length;
-        const aCount = (allText.match(/\d/g) || []).length;
-        const endsWithUnit = /(kg|l|ml|g)\s*$/i.test(allText.trim());
-        if (dCount >= 2 && aCount >= 2 && !endsWithUnit) full = digitText;
-    }
-    const fullVal = toNumber(full);
-    const t = String(full || "").trim();
-
-    if (/^0+\s*[1lI]$/.test(t) || /^[Oo]\s*[1lI]$/.test(t)) {
-        return { text: "0", value: 0, rect: box, ambiguous: false };
-    }
-    if (!/[0-9]1$/.test(t)) return { text: full, value: fullVal, rect: box, ambiguous: false };
-
-    const s = splitUnit(img, box);
-    if (!s.unit) return { text: full, value: fullVal, rect: box, ambiguous: false };
-
-    const mainTxt = await recRegion(img, s.main);
-    const unitTxt = await recRegion(img, s.unit);
-    const mainVal = toNumber(mainTxt);
-    if (mainVal === null) return { text: full, value: fullVal, rect: box, ambiguous: false };
-
-    const u = String(unitTxt || "").trim();
-    if (/[a-zA-Z]/.test(u) && !/^[lIi|]$/.test(u)) {
-        return { text: mainTxt, value: mainVal, rect: s.main, ambiguous: false };
-    }
-    return { text: mainTxt, value: mainVal, altValue: fullVal, unit: u, ambiguous: true, rect: s.main };
-}
-
-function kmeans1d(values, k) {
-    const sorted = values.slice().sort((a, b) => a - b);
-    if (sorted.length <= k) return sorted.slice();
-    const centers = [];
-    for (let i = 0; i < k; i++) {
-        const q = (i + 0.5) / k;
-        centers.push(sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]);
-    }
-    for (let iter = 0; iter < 40; iter++) {
-        const groups = [];
-        for (let i = 0; i < k; i++) groups.push([]);
-        for (const v of values) {
-            let bi = 0, bd = Infinity;
-            for (let c = 0; c < k; c++) {
-                const d = Math.abs(v - centers[c]);
-                if (d < bd) { bd = d; bi = c; }
-            }
-            groups[bi].push(v);
-        }
-        let moved = false;
-        for (let c = 0; c < k; c++) {
-            if (!groups[c].length) continue;
-            const m = groups[c].reduce((s, x) => s + x, 0) / groups[c].length;
-            if (Math.abs(m - centers[c]) > 0.01) moved = true;
-            centers[c] = m;
-        }
-        if (!moved) break;
-    }
-    return centers;
-}
-
-function bestTilt(items) {
-    let bestDeg = 0, bestScore = Infinity;
-    for (let deg = -6; deg <= 6.0001; deg += 0.5) {
-        const t = Math.tan(deg * Math.PI / 180);
-        const ys = items.map(it => it.y - it.x * t);
-        const centers = kmeans1d(ys, MATERIALS.length);
-        if (centers.length !== MATERIALS.length) continue;
-        let score = 0;
-        for (const y of ys) {
-            let bd = Infinity;
-            for (const c of centers) {
-                const d = Math.abs(y - c);
-                if (d < bd) bd = d;
-            }
-            score += bd * bd;
-        }
-        if (score < bestScore) { bestScore = score; bestDeg = deg; }
-    }
-    return bestDeg;
-}
-
-function rowAnchorsFromNames(words, tanT) {
-    const anchors = new Map();
-    if (!words) return anchors;
-    for (const w of words) {
-        const t = String(w.text || "").replace(/\s+/g, "");
-        if (!t) continue;
-        for (const m of MATERIALS) {
-            if (anchors.has(m)) continue;
-            const hit = (t === m) || (t.indexOf(m) >= 0) || (ALIAS_MAP[t] === m);
-            if (!hit) continue;
-            anchors.set(m, (w.y + w.h / 2) - (w.x + w.w / 2) * tanT);
-            break;
-        }
-    }
-    return anchors;
-}
-
-let dbgCols = [];
-let dbgRows = [];
-let dbgTilt = 0;
-let dbgRowMode = "";
-
-function rebuildTable(items, words) {
-    dbgCols = [];
-    dbgRows = [];
-    dbgTilt = 0;
-    dbgRowMode = "";
-    if (!items || items.length < MATERIALS.length) return null;
-
-    let minX = Infinity, maxX = -Infinity;
-    for (const it of items) {
-        if (it.x < minX) minX = it.x;
-        if (it.x > maxX) maxX = it.x;
-    }
-    if (!(maxX - minX > 1)) return null;
-
-    const span = maxX - minX;
-    let centers = [minX + span * 0.15, minX + span * 0.5, minX + span * 0.85];
-    for (let iter = 0; iter < 15; iter++) {
-        const g = [[], [], []];
-        for (const it of items) {
-            let bi = 0, bd = Infinity;
-            for (let k = 0; k < 3; k++) {
-                const d = Math.abs(it.x - centers[k]);
-                if (d < bd) { bd = d; bi = k; }
-            }
-            g[bi].push(it);
-        }
-        let moved = false;
-        for (let k = 0; k < 3; k++) {
-            if (!g[k].length) continue;
-            const m = g[k].reduce((s, it) => s + it.x, 0) / g[k].length;
-            if (Math.abs(m - centers[k]) > 0.5) moved = true;
-            centers[k] = m;
-        }
-        if (!moved) break;
-    }
-    const order = [0, 1, 2].sort((a, b) => centers[a] - centers[b]);
-    const colX = [centers[order[0]], centers[order[1]], centers[order[2]]].sort((a, b) => a - b);
-    dbgCols = colX.slice();
-
-    dbgTilt = bestTilt(items);
-    const tanT = Math.tan(dbgTilt * Math.PI / 180);
-    const corrected = items.map(it => ({
-        value: it.value,
-        altValue: it.altValue,
-        unit: it.unit,
-        ambiguous: it.ambiguous,
-        x: it.x,
-        y: it.y - it.x * tanT,
-        h: it.h
-    }));
-
-    // 行中心：优先用物料名的实际 y
-    const anchors = rowAnchorsFromNames(words, tanT);
-    let rowCenters = null;
-    if (anchors.size >= 6) {
-        const arr = MATERIALS.map(m => anchors.has(m) ? anchors.get(m) : NaN);
-        for (let i = 0; i < arr.length; i++) {
-            if (isFinite(arr[i])) continue;
-            let prev = NaN, next = NaN;
-            for (let j = i - 1; j >= 0; j--) if (isFinite(arr[j])) { prev = arr[j]; break; }
-            for (let j = i + 1; j < arr.length; j++) if (isFinite(arr[j])) { next = arr[j]; break; }
-            if (isFinite(prev) && isFinite(next)) arr[i] = (prev + next) / 2;
-            else if (isFinite(prev)) arr[i] = prev + 40;
-            else if (isFinite(next)) arr[i] = next - 40;
-        }
-        let mono = true;
-        for (let i = 1; i < arr.length; i++) if (!(arr[i] > arr[i - 1])) mono = false;
-        if (mono && arr.every(v => isFinite(v))) {
-            rowCenters = arr;
-            dbgRowMode = "物料名锚点 " + anchors.size + "/7";
-        }
-    }
-    if (!rowCenters) {
-        dbgRowMode = "等距插值";
-        const ys = corrected.map(it => it.y);
-        let yMin = Infinity, yMax = -Infinity;
-        for (const y of ys) {
-            if (y < yMin) yMin = y;
-            if (y > yMax) yMax = y;
-        }
-        const stepY = (yMax - yMin) / (MATERIALS.length - 1);
-        if (!(stepY > 1)) return null;
-        rowCenters = [];
-        for (let i = 0; i < MATERIALS.length; i++) rowCenters.push(yMin + i * stepY);
-    }
-    dbgRows = rowCenters.slice();
-
-    const rows = [];
-    for (let i = 0; i < rowCenters.length; i++) rows.push([]);
-    for (const it of corrected) {
-        let bi = 0, bd = Infinity;
-        for (let k = 0; k < rowCenters.length; k++) {
-            const d = Math.abs(it.y - rowCenters[k]);
-            if (d < bd) { bd = d; bi = k; }
-        }
-        rows[bi].push(it);
-    }
-
-    const out = new Map();
-    MATERIALS.forEach((m, i) => {
-        const cell = { f: 0, s: 0, c: 0 };
-        const isL = UNITS[m] === "l";
-        for (const n of rows[i]) {
-            let v = n.value;
-            if (n.ambiguous) {
-                if (!isL && n.altValue !== undefined && n.altValue !== null) v = n.altValue;
-            }
-            let bi = 0, bd = Infinity;
-            for (let k = 0; k < 3; k++) {
-                const d = Math.abs(n.x - colX[k]);
-                if (d < bd) { bd = d; bi = k; }
-            }
-            if (bi === 0) cell.f = v;
-            else if (bi === 1) cell.s = v;
-            else cell.c = v;
-        }
-        out.set(m, cell);
-    });
-    return out;
-}
-
-function fillDebug(info) {
-    const box = $("debugBox");
-    const pre = $("debugText");
-    if (!box || !pre || !info) return;
-    const lines = [];
-    lines.push("检测框 " + info.boxes + " 个，读出文字 " + info.words + " 段，其中数字 " + info.cells + " 个");
-    if (info.values && info.values.length) lines.push("识别到的数：" + info.values.join(", "));
-    lines.push("坐标还原：" + (info.rebuilt ? "成功" : "失败（退回按行文本解析）"));
-    lines.push("列中心 x：" + (dbgCols.length ? dbgCols.map(v => Math.round(v)).join(" , ") : "无"));
-    lines.push("倾角校正：" + Number(dbgTilt || 0).toFixed(1) + "°");
-    lines.push("分行方式：" + (dbgRowMode || "无"));
-    lines.push("行中心 y：" + (dbgRows.length ? dbgRows.map(v => Math.round(v)).join(" , ") : "无"));
-    if (info.list && info.list.length) {
-        lines.push("");
-        lines.push("数字 @ x,y：");
-        info.list.forEach(t => lines.push("  " + t));
-    }
-    lines.push("");
-    lines.push("识别原文：");
-    lines.push(info.text || "(空)");
-    pre.textContent = lines.join("\n");
-    box.style.display = "block";
-}
-
-/* ========== 10. 主流程 ========== */
-async function recognizeFile(file) {
-    if (!file) return;
-    if (!file.type || !file.type.startsWith("image/")) {
-        setStatus("请选择图片文件", true);
-        return;
-    }
-    $("btnCam").disabled = true;
-    $("btnLib").disabled = true;
-    try {
-        const img = await loadImage(file);
-        showPhoto(file);
-        await initEngine();
-
-        setStatus("正在检测文字区域…");
-        const boxes = await detectBoxes(img);
-        if (!boxes.length) {
-            setStatus("没检测到文字。正对表格、离近一点、开灯再拍一次。", true);
-            return;
-        }
-        boxes.sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2) || a.x - b.x);
-
-        const words = [];
-        const cells = [];
-        for (let i = 0; i < boxes.length; i++) {
-            setStatus("正在识别 " + (i + 1) + " / " + boxes.length + " …");
-            let res = null;
-            try { res = await recognizeCell(img, boxes[i]); } catch (e) { res = null; }
-            if (!res) continue;
-            const txt = String(res.text || "").trim();
-            if (txt) words.push({ text: txt, x: boxes[i].x, y: boxes[i].y, w: boxes[i].w, h: boxes[i].h });
-            if (res.value !== null && res.value !== undefined) {
-                cells.push({
-                    value: res.value,
-                    altValue: res.altValue,
-                    unit: res.unit,
-                    ambiguous: !!res.ambiguous,
-                    x: res.rect.x + res.rect.w / 2,
-                    y: res.rect.y + res.rect.h / 2,
-                    w: res.rect.w,
-                    h: res.rect.h
-                });
-            }
-        }
-
-        if (!words.length) {
-            setStatus("检测到了位置，但一个字也没认出来。把照片拍清楚一点再试。", true);
-            return;
-        }
-
-        const fullText = words.map(w => w.text).join("\n");
-        $("pasteInput").value = fullText;
-
-        const rebuilt = rebuildTable(cells, words);
-        const hit = rebuilt ? applyParsed(rebuilt) : applyParsed(smartParseOCR(fullText));
-
-        fillDebug({
-            boxes: boxes.length,
-            words: words.length,
-            cells: cells.length,
-            rebuilt: !!rebuilt,
-            values: cells.map(c => c.value),
-            list: cells.map(c => c.value + " @ " + Math.round(c.x) + "," + Math.round(c.y)),
-            text: fullText
-        });
-
-        renderAll();
-        saveDraftSoon();
-
-        if (rebuilt) {
-            setStatus("");
-            showToast("识别成功（按坐标还原整张表）", 2200);
-        } else if (hit > 0) {
-            setStatus("");
-            showToast("识别成功（" + hit + " 种物料）");
-        } else {
-            setStatus("读到 " + words.length + " 段文字，其中 " + cells.length + " 个数字，但没凑成 7 行 × 3 列。原文在上方文本框，可手动改完点「重新计算」。", true);
-            showToast("未还原成表格，请核对文字");
-        }
-    } catch (e) {
-        setStatus((e && e.message ? e.message : String(e)) + "\n可以把布丁/微信识别的文字直接粘贴到上面，再点「重新计算」。", true);
-    } finally {
-        $("btnCam").disabled = false;
-        $("btnLib").disabled = false;
-    }
-}
-
-/* ========== 11. 启动 ========== */
+/* ========== 启动 ========== */
 (function init() {
     const restored = loadDraft();
     renderAll();
-    if (restored) setTimeout(() => showToast("已恢复上次数据", 2000), 300);
+    if (restored) setTimeout(() => showToast("已恢复上次数据", 1800), 300);
 })();
 </script>
 </body>
