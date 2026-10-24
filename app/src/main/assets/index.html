@@ -908,6 +908,30 @@ function kmeans1d(values, k) {
     return centers;
 }
 
+/* 估计照片倾角：把每个数字的 y 减去 x*tan(θ)，找让 7 行最"紧"的角度 */
+function bestTilt(items) {
+    let bestDeg = 0, bestScore = Infinity;
+    for (let deg = -6; deg <= 6.0001; deg += 0.5) {
+        const t = Math.tan(deg * Math.PI / 180);
+        const ys = items.map(it => it.y - it.x * t);
+        const centers = kmeans1d(ys, MATERIALS.length);
+        if (centers.length !== MATERIALS.length) continue;
+        let score = 0;
+        for (const y of ys) {
+            let bd = Infinity;
+            for (const c of centers) {
+                const d = Math.abs(y - c);
+                if (d < bd) bd = d;
+            }
+            score += bd * bd;
+        }
+        if (score < bestScore) { bestScore = score; bestDeg = deg; }
+    }
+    return bestDeg;
+}
+
+let dbgTilt = 0;
+
 /**
  * 按坐标还原表格：
  * 列用 3-means 对数字的 x 聚簇（不依赖 FSL/SL/CL 被认对），
@@ -953,13 +977,18 @@ function rebuildTable(items) {
     const colX = [centers[order[0]], centers[order[1]], centers[order[2]]].sort((a, b) => a - b);
     dbgCols = colX.slice();
 
+    // 先估倾角、把 y 扭正，再分行（照片轻微倾斜会让同一行的左格落到下一行）
+    dbgTilt = bestTilt(items);
+    const tanT = Math.tan(dbgTilt * Math.PI / 180);
+    const corrected = items.map(it => ({ value: it.value, x: it.x, y: it.y - it.x * tanT, h: it.h }));
+
     // 行：表固定 7 行，直接对 y 做 k=7 的 k-means，比"按间隙切"稳
-    const rowCenters = kmeans1d(items.map(it => it.y), MATERIALS.length).sort((a, b) => a - b);
+    const rowCenters = kmeans1d(corrected.map(it => it.y), MATERIALS.length).sort((a, b) => a - b);
     if (rowCenters.length !== MATERIALS.length) return null;
     dbgRows = rowCenters.slice();
     const rows = [];
     for (let i = 0; i < rowCenters.length; i++) rows.push([]);
-    for (const it of items) {
+    for (const it of corrected) {
         let bi = 0, bd = Infinity;
         for (let k = 0; k < rowCenters.length; k++) {
             const d = Math.abs(it.y - rowCenters[k]);
@@ -995,6 +1024,7 @@ function fillDebug(info) {
     lines.push("检测框 " + info.boxes + " 个，读出文字 " + info.words + " 段，其中数字 " + info.cells + " 个");
     lines.push("坐标还原：" + (info.rebuilt ? "成功" : "失败（退回按行文本解析）"));
     lines.push("列中心 x：" + (dbgCols.length ? dbgCols.map(v => Math.round(v)).join(" , ") : "无"));
+    lines.push("倾角校正：" + Number(dbgTilt || 0).toFixed(1) + "°（行中心已按此扭正）");
     lines.push("行中心 y：" + (dbgRows.length ? dbgRows.map(v => Math.round(v)).join(" , ") : "无"));
     if (info.list && info.list.length) {
         lines.push("");
