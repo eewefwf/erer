@@ -82,6 +82,9 @@
     .photo-wrap img { width: 100%; height: auto; display: block; }
     .photo-hint { display: none; font-size: 11px; color: var(--text-light); margin-top: 6px; text-align: right; }
     .photo-wrap.show + .photo-hint { display: block; }
+    details.debug { display: none; margin-top: 10px; font-size: 12px; color: var(--text-light); }
+    details.debug summary { cursor: pointer; padding: 6px 0; color: var(--dark); font-weight: 600; }
+    details.debug pre { font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-top: 6px; max-height: 260px; overflow: auto; }
     #imgModal { display: none; position: fixed; inset: 0; background: #000; z-index: 900; overflow: auto; -webkit-overflow-scrolling: touch; }
     #imgModal.show { display: block; }
     #imgModal img { width: 100%; display: block; }
@@ -118,6 +121,11 @@
     </div>
 
     <div class="status" id="ocrStatus"></div>
+
+    <details class="debug" id="debugBox">
+        <summary>🔍 识别诊断（识别出错时点开截图给我）</summary>
+        <pre id="debugText"></pre>
+    </details>
 
     <div class="section-title">📋 识别结果 <small>可手动修改后点「重新计算」</small></div>
     <textarea class="paste-box" id="pasteInput" placeholder="点【拍照识别】或【相册】自动填入；也可以把布丁/微信识别出来的文字直接粘贴到这里，再点「重新计算」。" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
@@ -311,9 +319,9 @@ function smartParseOCR(fullText) {
 
         if (!numbers.length) continue;
 
-        if (mat === "多元醇") {
-            const nonZero = numbers.filter(v => v !== 0);
-            result.set(mat, { f: 0, s: 0, c: nonZero.length ? nonZero[nonZero.length - 1] : 0 });
+        // 多元醇：只认 CL 列，取"最右边"那个数（按位置，不按大小）
+        if (mat === "多元醇" && numbers.length) {
+            result.set(mat, { f: 0, s: 0, c: numbers[numbers.length - 1] });
             continue;
         }
 
@@ -868,13 +876,50 @@ async function recognizeCell(img, box) {
     return { text: full, value: fullVal, rect: box };
 }
 
+/* 一维 k-means：把数值分成 k 簇 */
+function kmeans1d(values, k) {
+    const sorted = values.slice().sort((a, b) => a - b);
+    if (sorted.length <= k) return sorted.slice();
+    const centers = [];
+    for (let i = 0; i < k; i++) {
+        const q = (i + 0.5) / k;
+        centers.push(sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]);
+    }
+    for (let iter = 0; iter < 40; iter++) {
+        const groups = [];
+        for (let i = 0; i < k; i++) groups.push([]);
+        for (const v of values) {
+            let bi = 0, bd = Infinity;
+            for (let c = 0; c < k; c++) {
+                const d = Math.abs(v - centers[c]);
+                if (d < bd) { bd = d; bi = c; }
+            }
+            groups[bi].push(v);
+        }
+        let moved = false;
+        for (let c = 0; c < k; c++) {
+            if (!groups[c].length) continue;
+            const m = groups[c].reduce((s, x) => s + x, 0) / groups[c].length;
+            if (Math.abs(m - centers[c]) > 0.01) moved = true;
+            centers[c] = m;
+        }
+        if (!moved) break;
+    }
+    return centers;
+}
+
 /**
  * 按坐标还原表格：
  * 列用 3-means 对数字的 x 聚簇（不依赖 FSL/SL/CL 被认对），
  * 行用纵向区间重叠聚簇，最后按物料固定顺序对应。
  */
+let dbgCols = [];
+let dbgRows = [];
+
 function rebuildTable(items) {
-    if (!items || items.length < 6) return null;
+    dbgCols = [];
+    dbgRows = [];
+    if (!items || items.length < MATERIALS.length) return null;
 
     let minX = Infinity, maxX = -Infinity;
     for (const it of items) {
@@ -905,37 +950,23 @@ function rebuildTable(items) {
         if (!moved) break;
     }
     const order = [0, 1, 2].sort((a, b) => centers[a] - centers[b]);
-    const colX = [centers[order[0]], centers[order[1]], centers[order[2]]];
+    const colX = [centers[order[0]], centers[order[1]], centers[order[2]]].sort((a, b) => a - b);
+    dbgCols = colX.slice();
 
-    const sorted = items.slice().sort((a, b) => a.y - b.y);
+    // 行：表固定 7 行，直接对 y 做 k=7 的 k-means，比"按间隙切"稳
+    const rowCenters = kmeans1d(items.map(it => it.y), MATERIALS.length).sort((a, b) => a - b);
+    if (rowCenters.length !== MATERIALS.length) return null;
+    dbgRows = rowCenters.slice();
     const rows = [];
-    let cur = [sorted[0]];
-    let curBottom = sorted[0].y + sorted[0].h / 2;
-    for (let i = 1; i < sorted.length; i++) {
-        const it = sorted[i];
-        const top = it.y - it.h / 2;
-        if (top - curBottom > Math.max(6, it.h * 0.45)) {
-            rows.push(cur);
-            cur = [it];
-            curBottom = it.y + it.h / 2;
-        } else {
-            cur.push(it);
-            if (it.y + it.h / 2 > curBottom) curBottom = it.y + it.h / 2;
-        }
-    }
-    rows.push(cur);
-
-    const rowCenter = r => r.reduce((s, x) => s + x.y, 0) / r.length;
-    while (rows.length > MATERIALS.length) {
+    for (let i = 0; i < rowCenters.length; i++) rows.push([]);
+    for (const it of items) {
         let bi = 0, bd = Infinity;
-        for (let i = 0; i < rows.length - 1; i++) {
-            const d = rowCenter(rows[i + 1]) - rowCenter(rows[i]);
-            if (d < bd) { bd = d; bi = i; }
+        for (let k = 0; k < rowCenters.length; k++) {
+            const d = Math.abs(it.y - rowCenters[k]);
+            if (d < bd) { bd = d; bi = k; }
         }
-        rows[bi] = rows[bi].concat(rows[bi + 1]);
-        rows.splice(bi + 1, 1);
+        rows[bi].push(it);
     }
-    if (rows.length !== MATERIALS.length) return null;
 
     const out = new Map();
     MATERIALS.forEach((m, i) => {
@@ -953,6 +984,28 @@ function rebuildTable(items) {
         out.set(m, cell);
     });
     return out;
+}
+
+/* 诊断信息：识别出错时把这块截图给我 */
+function fillDebug(info) {
+    const box = $("debugBox");
+    const pre = $("debugText");
+    if (!box || !pre || !info) return;
+    const lines = [];
+    lines.push("检测框 " + info.boxes + " 个，读出文字 " + info.words + " 段，其中数字 " + info.cells + " 个");
+    lines.push("坐标还原：" + (info.rebuilt ? "成功" : "失败（退回按行文本解析）"));
+    lines.push("列中心 x：" + (dbgCols.length ? dbgCols.map(v => Math.round(v)).join(" , ") : "无"));
+    lines.push("行中心 y：" + (dbgRows.length ? dbgRows.map(v => Math.round(v)).join(" , ") : "无"));
+    if (info.list && info.list.length) {
+        lines.push("");
+        lines.push("数字 @ x,y：");
+        info.list.forEach(t => lines.push("  " + t));
+    }
+    lines.push("");
+    lines.push("识别原文：");
+    lines.push(info.text || "(空)");
+    pre.textContent = lines.join("\n");
+    box.style.display = "block";
 }
 
 /* 主流程 */
@@ -1009,6 +1062,15 @@ async function recognizeFile(file) {
 
         const rebuilt = rebuildTable(cells);
         const hit = rebuilt ? applyParsed(rebuilt) : applyParsed(smartParseOCR(fullText));
+
+        fillDebug({
+            boxes: boxes.length,
+            words: words.length,
+            cells: cells.length,
+            rebuilt: !!rebuilt,
+            list: cells.map(c => c.value + " @ " + Math.round(c.x) + "," + Math.round(c.y)),
+            text: fullText
+        });
 
         renderAll();
         saveDraftSoon();
