@@ -76,10 +76,16 @@
     .status { display: none; font-size: 12px; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 8px 10px; margin: 10px 0 0; line-height: 1.5; white-space: pre-line; }
     .status.show { display: block; }
     .status.err { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
-    .thumb { display: none; margin-top: 10px; }
-    .thumb.show { display: flex; align-items: center; gap: 10px; }
-    .thumb img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }
-    .thumb span { font-size: 12px; color: var(--text-light); line-height: 1.5; }
+    .photo-wrap { display: none; margin: 10px 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #0f172a; }
+    .photo-wrap.show { display: block; }
+    /* 和表格同宽、等比缩放：整张图铺满卡片宽度，高度按比例自适应，不裁切不变形 */
+    .photo-wrap img { width: 100%; height: auto; display: block; }
+    .photo-hint { display: none; font-size: 11px; color: var(--text-light); margin-top: 6px; text-align: right; }
+    .photo-wrap.show + .photo-hint { display: block; }
+    #imgModal { display: none; position: fixed; inset: 0; background: #000; z-index: 900; overflow: auto; -webkit-overflow-scrolling: touch; }
+    #imgModal.show { display: block; }
+    #imgModal img { width: 100%; display: block; }
+    #imgModal .modal-close { position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 12px; background: rgba(255,255,255,.18); color: #fff; border: none; border-radius: 20px; padding: 8px 14px; font-size: 14px; z-index: 901; }
     .toast {
         position: fixed; left: 50%; transform: translateX(-50%) translateY(10px);
         bottom: calc(24px + env(safe-area-inset-bottom)); background: #1e293b; color: #fff;
@@ -113,11 +119,6 @@
 
     <div class="status" id="ocrStatus"></div>
 
-    <div class="thumb" id="thumbWrap">
-        <img id="thumbImg" alt="待识别的照片">
-        <span id="thumbText"></span>
-    </div>
-
     <div class="section-title">📋 识别结果 <small>可手动修改后点「重新计算」</small></div>
     <textarea class="paste-box" id="pasteInput" placeholder="点【拍照识别】或【相册】自动填入；也可以把布丁/微信识别出来的文字直接粘贴到这里，再点「重新计算」。" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
 
@@ -128,6 +129,11 @@
             <tbody id="raw"></tbody>
         </table>
     </div>
+
+    <div class="photo-wrap" id="photoWrap">
+        <img id="photoImg" alt="拍摄的原图">
+    </div>
+    <div class="photo-hint">👆 与上方表格同宽等比显示 · 点图片全屏放大</div>
 
     <div class="section-title">⚖️ 换算结果 <small>点数字复制 · 保留 2 位</small></div>
     <div class="table-scroll">
@@ -149,6 +155,11 @@
 </div>
 
 <div class="toast" id="toastMsg">✅ 已复制</div>
+
+<div id="imgModal">
+    <button class="modal-close" id="imgModalClose">关闭 ✕</button>
+    <img id="modalImg" alt="原图">
+</div>
 
 <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 <input type="file" id="fileLib" accept="image/*" hidden>
@@ -955,7 +966,7 @@ async function recognizeFile(file) {
     $("btnLib").disabled = true;
     try {
         const img = await loadImage(file);
-        showThumb(URL.createObjectURL(file), "已读取照片");
+        showPhoto(file);
 
         await initEngine();
 
@@ -1012,7 +1023,6 @@ async function recognizeFile(file) {
             setStatus("读到 " + words.length + " 段文字，其中 " + cells.length + " 个数字，但没凑成 7 行 × 3 列。原文在上方文本框，可手动改完点「重新计算」。", true);
             showToast("未还原成表格，请核对文字");
         }
-        $("thumbText").textContent = "识别完成（" + words.length + " 段）";
     } catch (e) {
         setStatus((e && e.message ? e.message : String(e)) + "\n可以把布丁/微信识别的文字直接粘贴到上面，再点「重新计算」。", true);
     } finally {
@@ -1024,16 +1034,23 @@ async function recognizeFile(file) {
 /* =========================================================
    9. 相机 / 相册
    ========================================================= */
-function showThumb(dataUrl, text) {
-    if (!dataUrl) { hideThumb(); return; }
-    $("thumbImg").src = dataUrl;
-    $("thumbText").textContent = text || "";
-    $("thumbWrap").classList.add("show");
+let photoUrl = null;
+function showPhoto(file) {
+    if (!file) return;
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    photoUrl = URL.createObjectURL(file);
+    $("photoImg").src = photoUrl;
+    $("modalImg").src = photoUrl;
+    $("photoWrap").classList.add("show");
 }
 function hideThumb() {
-    $("thumbWrap").classList.remove("show");
-    $("thumbImg").removeAttribute("src");
+    if (photoUrl) { URL.revokeObjectURL(photoUrl); photoUrl = null; }
+    $("photoWrap").classList.remove("show");
+    $("photoImg").removeAttribute("src");
+    $("modalImg").removeAttribute("src");
 }
+$("photoWrap").addEventListener("click", () => { $("imgModal").classList.add("show"); });
+$("imgModal").addEventListener("click", () => { $("imgModal").classList.remove("show"); });
 
 function startCamera() {
     if (window.Android && typeof window.Android.startCameraOCR === "function") {
