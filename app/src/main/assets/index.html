@@ -141,7 +141,7 @@
     <details class="help">
         <summary>❓ 使用说明</summary>
         <ol>
-            <li><b>拍照识别</b>：点按钮 → 调系统相机 → 拍完自动识别并填表。首次使用要联网下载中文识别模型（约 15–20MB），之后走缓存。</li>
+            <li><b>拍照识别</b>：点按钮 → 调系统相机 → 拍完自动识别并填表。识别模型已内置在 App 里，<b>不需要联网</b>。</li>
             <li><b>识别不准</b>：识别原文都在上方文本框里，改完点「重新计算」即可，不用重拍。</li>
             <li><b>手改数据</b>：点「原始数据」里的数字直接改，结果实时跟着变。</li>
             <li><b>草稿</b>：改动会自动保存，退出 App 再进来数据还在；点「清空」才会删除。</li>
@@ -153,6 +153,20 @@
 
 <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 <input type="file" id="fileLib" accept="image/*" hidden>
+
+<script>
+/* 全局错误显示：任何脚本错误都直接写在页面上，方便截图反馈 */
+window.onerror = function (msg, src, line, col) {
+    function show() {
+        var box = document.getElementById("ocrStatus");
+        if (!box) { setTimeout(show, 300); return; }
+        box.textContent = "脚本错误：" + msg + "（第 " + line + " 行）";
+        box.className = "status show err";
+    }
+    show();
+    return false;
+};
+</script>
 
 <script>
 /* =========================================================
@@ -574,6 +588,7 @@ async function getWorker() {
     if (ocrWorker) return ocrWorker;
     const T = await ensureTesseract();
     setStatus("正在加载中文识别模型…");
+    // 中文模型已打包在 APK 里（assets/tessdata），不再联网下载
     ocrWorker = await T.createWorker("chi_sim", 1, {
         langPath: "https://appassets.androidplatform.net/assets/tessdata",
         logger: m => {
@@ -581,9 +596,11 @@ async function getWorker() {
             const p = Math.round((m.progress || 0) * 100);
             if (m.status === "loading language traineddata") setStatus("正在加载中文模型 " + p + "%");
             else if (m.status === "loading tesseract core") setStatus("正在加载识别引擎 " + p + "%");
+            else if (m.status === "initializing tesseract") setStatus("引擎初始化中…");
             else if (m.status === "recognizing text") setStatus("正在识别文字 " + p + "%");
         }
     });
+    // 表格用"整块文本"版面模式，比默认的自动分栏稳
     try { await ocrWorker.setParameters({ tessedit_pageseg_mode: "6" }); } catch (e) {}
     return ocrWorker;
 }
@@ -603,6 +620,10 @@ function canvasToBlob(cv) {
     return new Promise(resolve => cv.toBlob(b => resolve(b), "image/png"));
 }
 
+/**
+ * 预处理：缩放 → 旋转 → 灰度 → 对比拉伸 → Otsu 二值化
+ * 屏幕照片的摩尔纹、发灰、网格线基本都在这一步被压掉
+ */
 function preprocess(img, angleDeg, maxSide) {
     const s = Math.min(3, maxSide / Math.max(img.width, img.height));
     const w = Math.max(1, Math.round(img.width * s));
@@ -653,6 +674,7 @@ function preprocess(img, angleDeg, maxSide) {
         const v = wB * wF * (mB - mF) * (mB - mF);
         if (v > best) { best = v; thr = t; }
     }
+
     for (let j = 0, k = 0; j < n; j++, k += 4) {
         const v = gray[j] > thr ? 255 : 0;
         d[k] = d[k + 1] = d[k + 2] = v;
@@ -662,7 +684,7 @@ function preprocess(img, angleDeg, maxSide) {
     return cv;
 }
 
-/* ---------- 带坐标的识别结果 ---------- */
+/* ---------- TSV：带坐标的识别结果 ---------- */
 function parseTsv(tsv) {
     const words = [];
     if (!tsv) return words;
@@ -685,9 +707,15 @@ function parseTsv(tsv) {
     return words;
 }
 
+/**
+ * 按坐标还原表格：
+ * 表头 FSL/SL/CL 定列，数字聚成 7 行按物料固定顺序对应。
+ * 中文物料名认不出来也没关系。
+ */
 function rebuildByPosition(words) {
     if (!words || words.length < 8) return null;
 
+    // 1) 三列表头
     const cols = [null, null, null];
     for (const w of words) {
         const t = w.text.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -701,6 +729,7 @@ function rebuildByPosition(words) {
     }
     if (!cols[0] || !cols[1] || !cols[2]) return null;
 
+    // 2) 数字
     const nums = [];
     for (const w of words) {
         const t = w.text.replace(/[,，]/g, "");
@@ -709,6 +738,7 @@ function rebuildByPosition(words) {
     }
     if (nums.length < 7) return null;
 
+    // 3) 按 y 聚成行
     nums.sort((a, b) => a.y - b.y);
     let rows = [];
     let cur = [nums[0]];
@@ -721,6 +751,7 @@ function rebuildByPosition(words) {
 
     const rowCenter = r => r.reduce((s, x) => s + x.y, 0) / r.length;
 
+    // 4) 行数多了就合并最接近的两行
     while (rows.length > MATERIALS.length) {
         let bi = 0, bd = Infinity;
         for (let i = 0; i < rows.length - 1; i++) {
@@ -732,6 +763,7 @@ function rebuildByPosition(words) {
     }
     if (rows.length !== MATERIALS.length) return null;
 
+    // 5) 每个数字按 x 归到最近的列
     const out = new Map();
     MATERIALS.forEach((m, i) => {
         const cell = { f: 0, s: 0, c: 0 };
@@ -766,6 +798,7 @@ function scoreText(text) {
     return s;
 }
 
+/* ---------- 主流程：多角度识别，取最好的一次 ---------- */
 async function recognizeFile(file) {
     if (!file) return;
     if (!file.type || !file.type.startsWith("image/")) {
@@ -803,11 +836,12 @@ async function recognizeFile(file) {
             const score = scoreText(text) + (rebuilt ? 500 : 0);
             if (!best || score > best.score) best = { a, text, words, rebuilt, score };
 
+            // 已经按坐标还原出整张表，不用再试别的角度
             if (rebuilt) break;
         }
 
         if (!best || !best.text) {
-            setStatus("没识别到文字。把手机正对表格、离近一点、开灯再拍一次。", true);
+            setStatus("没识别到文字。把手机横过来正对表格、离近一点、开灯再拍一次。", true);
             return;
         }
 
@@ -830,7 +864,7 @@ async function recognizeFile(file) {
             setStatus("");
             showToast("识别成功（" + hit + " 种物料）");
         } else {
-            setStatus("文字读出来了，但没还原成表格。原文在上方文本框，可以手动改完点「重新计算」。\n提示：正对表格、只拍表格区域，成功率会高很多。", true);
+            setStatus("文字读出来了，但没还原成表格。原文在上方文本框，可以手动改完点「重新计算」。\n提示：把表格拍正、只拍表格区域，识别率会高很多。", true);
             showToast("未还原成表格，请核对文字");
         }
     } catch (e) {
@@ -840,6 +874,8 @@ async function recognizeFile(file) {
         $("btnLib").disabled = false;
     }
 }
+
+function startCamera() {
     // 若将来在壳里加了原生 PaddleOCR 桥，这里会自动优先用原生
     if (window.Android && typeof window.Android.startCameraOCR === "function") {
         try { window.Android.startCameraOCR(); return; } catch (e) {}
