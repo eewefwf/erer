@@ -172,7 +172,13 @@ window.onerror = function (msg, src, line, col) {
    1. 业务配置
    ========================================================= */
 const MATERIALS = ["MDI", "乳剂", "尿素", "增粘剂", "水", "热蜡", "多元醇"];
-const ALIAS_MAP = { "多元酸": "多元醇", "多元酉享": "多元醇", "多元脂": "多元醇" };
+const ALIAS_MAP = {
+    "多元酸": "多元醇", "多元酉享": "多元醇", "多元脂": "多元醇", "多元醉": "多元醇",
+    "尿磊": "尿素", "尿紊": "尿素", "尿麦": "尿素",
+    "乳济": "乳剂", "乳汁": "乳剂", "乳齐": "乳剂",
+    "增黏剂": "增粘剂", "增拈剂": "增粘剂", "憎粘剂": "增粘剂",
+    "热腊": "热蜡", "热借": "热蜡"
+};
 const COLUMN_MAP = {
     "MDI": [0, 1, 2],
     "乳剂": [0, 1, 2],
@@ -716,7 +722,7 @@ function ctcDecode(data, dims) {
     return text;
 }
 
-async function recognizeBox(img, box) {
+async function recRegion(img, box) {
     const H = 48;
     let W = Math.round(H * box.w / Math.max(1, box.h));
     W = Math.min(720, Math.max(16, W));
@@ -743,47 +749,172 @@ async function recognizeBox(img, box) {
     return ctcDecode(o.data, o.dims);
 }
 
-/* 按坐标还原表格：表头定列，数字按行聚簇 */
-function rebuildByPosition(boxes) {
-    if (!boxes || boxes.length < 6) return null;
-
-    const cols = [null, null, null];
-    for (const b of boxes) {
-        const t = String(b.text).toUpperCase().replace(/[^A-Z0-9]/g, "");
-        let idx = -1;
-        if (t === "FSL" || t === "FS1" || t === "FSI") idx = 0;
-        else if (t === "SL" || t === "S1" || t === "SI") idx = 1;
-        else if (t === "CL" || t === "C1" || t === "CI") idx = 2;
-        if (idx < 0) continue;
-        const cx = b.x + b.w / 2;
-        if (cols[idx] === null || b.y < cols[idx].y) cols[idx] = { x: cx, y: b.y };
+/* 灰度 + Otsu，用来做竖直投影切分「数字 / 单位」 */
+function cropGray(img, r) {
+    const w = Math.max(1, Math.round(r.w));
+    const h = Math.max(1, Math.round(r.h));
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, r.x, r.y, r.w, r.h, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const gray = new Uint8ClampedArray(w * h);
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+        gray[p] = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
     }
-    if (!cols[0] || !cols[1] || !cols[2]) return null;
+    return { gray: gray, w: w, h: h };
+}
 
-    const nums = [];
-    for (const b of boxes) {
-        const found = String(b.text).match(/\d{1,5}/g);
-        if (!found) continue;
-        const k = found.length;
-        found.forEach((s, i) => {
-            const cx = b.x + b.w * (k === 1 ? 0.5 : (i + 0.5) / k);
-            nums.push({ v: parseFloat(s), x: cx, y: b.y + b.h / 2, h: b.h });
-        });
+function otsuOf(gray) {
+    const hist = new Float64Array(256);
+    for (let i = 0; i < gray.length; i++) hist[gray[i] | 0]++;
+    const n = gray.length;
+    let sum = 0;
+    for (let t = 0; t < 256; t++) sum += t * hist[t];
+    let sumB = 0, wB = 0, best = 0, thr = 128;
+    for (let t = 0; t < 256; t++) {
+        wB += hist[t];
+        if (!wB) continue;
+        const wF = n - wB;
+        if (!wF) break;
+        sumB += t * hist[t];
+        const mB = sumB / wB, mF = (sum - sumB) / wF;
+        const v = wB * wF * (mB - mF) * (mB - mF);
+        if (v > best) { best = v; thr = t; }
     }
-    if (nums.length < 7) return null;
+    return thr;
+}
 
-    nums.sort((a, b) => a.y - b.y);
+function toNumber(text) {
+    const s = String(text || "").replace(/[^\d.]/g, "");
+    if (!s) return null;
+    const v = parseFloat(s);
+    return isFinite(v) ? v : null;
+}
+
+/**
+ * 把「数字 + 单位」的框切开。
+ * 单位 l 常被认成 1，和数字粘成 14801（其实是 1480 l），数值会放大 10 倍。
+ */
+function splitUnit(img, box) {
+    const g = cropGray(img, box);
+    const w = g.w, h = g.h, gray = g.gray;
+    if (w < 40 || h < 8) return { main: box, unit: null };
+
+    const thr = otsuOf(gray);
+    const ink = new Int32Array(w);
+    for (let x = 0; x < w; x++) {
+        let c = 0;
+        for (let y = 0; y < h; y++) if (gray[y * w + x] < thr) c++;
+        ink[x] = c;
+    }
+    const minInk = Math.max(1, Math.round(h * 0.06));
+
+    let x = w - 1;
+    while (x >= 0 && ink[x] < minInk) x--;
+    if (x < 0) return { main: box, unit: null };
+    const unitRight = x;
+    while (x >= 0 && ink[x] >= minInk) x--;
+    const unitLeft = x + 1;
+    const gapEnd = x;
+    while (x >= 0 && ink[x] < minInk) x--;
+    const mainRight = x;
+
+    const unitW = unitRight - unitLeft + 1;
+    const gapW = gapEnd - mainRight;
+    if (mainRight < w * 0.45) return { main: box, unit: null };
+    if (unitW > w * 0.4) return { main: box, unit: null };
+    if (gapW < 1) return { main: box, unit: null };
+
+    const cutPx = mainRight + 1;
+    const sx = box.w / w;
+    return {
+        main: { x: box.x, y: box.y, w: Math.max(8, cutPx * sx), h: box.h },
+        unit: { x: box.x + cutPx * sx, y: box.y, w: Math.max(4, (w - cutPx) * sx), h: box.h }
+    };
+}
+
+/* 一个文字块 → { text, value, rect } */
+async function recognizeCell(img, box) {
+    const full = await recRegion(img, box);
+    const fullVal = toNumber(full);
+    const t = String(full || "").trim();
+
+    // 以 1 结尾的数字，很可能是把单位 l 认成了 1
+    if (!/[0-9]1$/.test(t)) return { text: full, value: fullVal, rect: box };
+
+    const s = splitUnit(img, box);
+    if (!s.unit) return { text: full, value: fullVal, rect: box };
+
+    const mainTxt = await recRegion(img, s.main);
+    const unitTxt = await recRegion(img, s.unit);
+    const mainVal = toNumber(mainTxt);
+    // 切开后尾巴必须不含数字，才认可这次切分
+    if (mainVal !== null && !/\d/.test(unitTxt)) {
+        return { text: mainTxt, value: mainVal, rect: s.main };
+    }
+    return { text: full, value: fullVal, rect: box };
+}
+
+/**
+ * 按坐标还原表格：
+ * 列用 3-means 对数字的 x 聚簇（不依赖 FSL/SL/CL 被认对），
+ * 行用纵向区间重叠聚簇，最后按物料固定顺序对应。
+ */
+function rebuildTable(items) {
+    if (!items || items.length < 6) return null;
+
+    let minX = Infinity, maxX = -Infinity;
+    for (const it of items) {
+        if (it.x < minX) minX = it.x;
+        if (it.x > maxX) maxX = it.x;
+    }
+    if (!(maxX - minX > 1)) return null;
+
+    const span = maxX - minX;
+    let centers = [minX + span * 0.15, minX + span * 0.5, minX + span * 0.85];
+    for (let iter = 0; iter < 15; iter++) {
+        const g = [[], [], []];
+        for (const it of items) {
+            let bi = 0, bd = Infinity;
+            for (let k = 0; k < 3; k++) {
+                const d = Math.abs(it.x - centers[k]);
+                if (d < bd) { bd = d; bi = k; }
+            }
+            g[bi].push(it);
+        }
+        let moved = false;
+        for (let k = 0; k < 3; k++) {
+            if (!g[k].length) continue;
+            const m = g[k].reduce((s, it) => s + it.x, 0) / g[k].length;
+            if (Math.abs(m - centers[k]) > 0.5) moved = true;
+            centers[k] = m;
+        }
+        if (!moved) break;
+    }
+    const order = [0, 1, 2].sort((a, b) => centers[a] - centers[b]);
+    const colX = [centers[order[0]], centers[order[1]], centers[order[2]]];
+
+    const sorted = items.slice().sort((a, b) => a.y - b.y);
     const rows = [];
-    let cur = [nums[0]];
-    for (let i = 1; i < nums.length; i++) {
-        const prev = cur[cur.length - 1];
-        if (nums[i].y - prev.y > Math.max(8, prev.h * 1.4)) { rows.push(cur); cur = [nums[i]]; }
-        else cur.push(nums[i]);
+    let cur = [sorted[0]];
+    let curBottom = sorted[0].y + sorted[0].h / 2;
+    for (let i = 1; i < sorted.length; i++) {
+        const it = sorted[i];
+        const top = it.y - it.h / 2;
+        if (top - curBottom > Math.max(6, it.h * 0.45)) {
+            rows.push(cur);
+            cur = [it];
+            curBottom = it.y + it.h / 2;
+        } else {
+            cur.push(it);
+            if (it.y + it.h / 2 > curBottom) curBottom = it.y + it.h / 2;
+        }
     }
     rows.push(cur);
 
     const rowCenter = r => r.reduce((s, x) => s + x.y, 0) / r.length;
-
     while (rows.length > MATERIALS.length) {
         let bi = 0, bd = Infinity;
         for (let i = 0; i < rows.length - 1; i++) {
@@ -799,14 +930,14 @@ function rebuildByPosition(boxes) {
     MATERIALS.forEach((m, i) => {
         const cell = { f: 0, s: 0, c: 0 };
         for (const n of rows[i]) {
-            let best = 0, bd = Infinity;
+            let bi = 0, bd = Infinity;
             for (let k = 0; k < 3; k++) {
-                const d = Math.abs(n.x - cols[k].x);
-                if (d < bd) { bd = d; best = k; }
+                const d = Math.abs(n.x - colX[k]);
+                if (d < bd) { bd = d; bi = k; }
             }
-            if (best === 0) cell.f = n.v;
-            else if (best === 1) cell.s = n.v;
-            else cell.c = n.v;
+            if (bi === 0) cell.f = n.value;
+            else if (bi === 1) cell.s = n.value;
+            else cell.c = n.value;
         }
         out.set(m, cell);
     });
@@ -838,12 +969,23 @@ async function recognizeFile(file) {
         boxes.sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2) || a.x - b.x);
 
         const words = [];
+        const cells = [];
         for (let i = 0; i < boxes.length; i++) {
             setStatus("正在识别 " + (i + 1) + " / " + boxes.length + " …");
-            let txt = "";
-            try { txt = await recognizeBox(img, boxes[i]); } catch (e) { txt = ""; }
-            txt = String(txt || "").trim();
+            let res = null;
+            try { res = await recognizeCell(img, boxes[i]); } catch (e) { res = null; }
+            if (!res) continue;
+            const txt = String(res.text || "").trim();
             if (txt) words.push({ text: txt, x: boxes[i].x, y: boxes[i].y, w: boxes[i].w, h: boxes[i].h });
+            if (res.value !== null && res.value !== undefined) {
+                cells.push({
+                    value: res.value,
+                    x: res.rect.x + res.rect.w / 2,
+                    y: res.rect.y + res.rect.h / 2,
+                    w: res.rect.w,
+                    h: res.rect.h
+                });
+            }
         }
 
         if (!words.length) {
@@ -854,7 +996,7 @@ async function recognizeFile(file) {
         const fullText = words.map(w => w.text).join("\n");
         $("pasteInput").value = fullText;
 
-        const rebuilt = rebuildByPosition(words);
+        const rebuilt = rebuildTable(cells);
         const hit = rebuilt ? applyParsed(rebuilt) : applyParsed(smartParseOCR(fullText));
 
         renderAll();
@@ -867,7 +1009,7 @@ async function recognizeFile(file) {
             setStatus("");
             showToast("识别成功（" + hit + " 种物料）");
         } else {
-            setStatus("读到 " + words.length + " 段文字，但没还原成表格。原文在上方文本框，可手动改完点「重新计算」。", true);
+            setStatus("读到 " + words.length + " 段文字，其中 " + cells.length + " 个数字，但没凑成 7 行 × 3 列。原文在上方文本框，可手动改完点「重新计算」。", true);
             showToast("未还原成表格，请核对文字");
         }
         $("thumbText").textContent = "识别完成（" + words.length + " 段）";
