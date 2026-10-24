@@ -1,6 +1,5 @@
 name: Build APK
 
-# 推代码或手动点一下，云端自动编译出可安装的 APK
 on:
   push:
     branches: [ main, master ]
@@ -24,7 +23,6 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      # 1) 把 onnxruntime-web 的 JS/WASM 运行时打进 APK
       - name: Bundle OCR runtime (onnxruntime-web)
         run: |
           set -e
@@ -34,53 +32,32 @@ jobs:
           npm pack onnxruntime-web@1.18.0
           tar -xzf onnxruntime-web-1.18.0.tgz
           find /tmp/package/dist -maxdepth 1 -type f -exec cp -f {} "$DEST/" \;
-          ls -lh "$DEST" | head -30
+          ls -lh "$DEST" | head -20
 
-      # 2) 从 RapidOCR 的 wheel 里取出 PP-OCRv4 的检测/识别模型和字典
-      - name: Bundle OCR models (PP-OCRv4)
+      - name: Bundle OCR models (PP-OCRv5 mobile)
         run: |
           set -e
           DEST="$GITHUB_WORKSPACE/app/src/main/assets/ocr"
-          mkdir -p "$DEST" /tmp/whl /tmp/whl/x
-          python -m pip download --no-deps -d /tmp/whl rapidocr_onnxruntime==1.3.24
-          unzip -o -q /tmp/whl/*.whl -d /tmp/whl/x
+          mkdir -p "$DEST"
+          BASE="https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0"
 
-          echo "---- 包内非 onnx 文件 ----"
-          find /tmp/whl/x -type f ! -name "*.onnx" | head -40
+          curl -fL --retry 3 --retry-delay 2 -o "$DEST/det.onnx" \
+            "$BASE/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx"
+          curl -fL --retry 3 --retry-delay 2 -o "$DEST/rec.onnx" \
+            "$BASE/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx"
+          curl -fL --retry 3 --retry-delay 2 -o "$DEST/dict.txt" \
+            "$BASE/paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt"
 
-          DET=$(find /tmp/whl/x -name "*det*infer*.onnx" | head -1)
-          REC=$(find /tmp/whl/x -name "*rec*infer*.onnx" | head -1)
-          echo "DET=$DET"
-          echo "REC=$REC"
-          test -n "$DET"
-          test -n "$REC"
+          echo "---- 校验 ----"
+          echo "det sha: $(sha256sum "$DEST/det.onnx" | cut -d' ' -f1)"
+          echo "rec sha: $(sha256sum "$DEST/rec.onnx" | cut -d' ' -f1)"
+          echo "字典行数: $(wc -l < "$DEST/dict.txt")"
+          ls -lh "$DEST/det.onnx" "$DEST/rec.onnx" "$DEST/dict.txt" "$DEST/ort.min.js"
 
-          DICT=$(find /tmp/whl/x -name "ppocr_keys_v1.txt" | head -1)
-          if [ -z "$DICT" ]; then
-            DICT=$(find /tmp/whl/x -iname "*keys*.txt" | head -1)
-          fi
-          if [ -z "$DICT" ]; then
-            DICT=$(find /tmp/whl/x -iname "*dict*.txt" | head -1)
-          fi
-          if [ -z "$DICT" ]; then
-            echo "包内没有字典，从 PaddleOCR 官方仓库下载"
-            curl -fL --retry 3 -o /tmp/whl/ppocr_keys_v1.txt \
-              https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/ppocr_keys_v1.txt
-            DICT=/tmp/whl/ppocr_keys_v1.txt
-          fi
-          echo "DICT=$DICT"
-          test -f "$DICT"
-          echo "字典行数：$(wc -l < "$DICT")"
-
-          cp -f "$DET"  "$DEST/ch_PP-OCRv4_det_infer.onnx"
-          cp -f "$REC"  "$DEST/ch_PP-OCRv4_rec_infer.onnx"
-          cp -f "$DICT" "$DEST/ppocr_keys_v1.txt"
-
-          test -f "$DEST/ch_PP-OCRv4_det_infer.onnx"
-          test -f "$DEST/ch_PP-OCRv4_rec_infer.onnx"
-          test -f "$DEST/ppocr_keys_v1.txt"
-          test -f "$DEST/ort.min.js"
-          ls -lh "$DEST"
+          test -s "$DEST/det.onnx"
+          test -s "$DEST/rec.onnx"
+          test -s "$DEST/dict.txt"
+          test -s "$DEST/ort.min.js"
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
