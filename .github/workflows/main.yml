@@ -23,42 +23,6 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Bundle OCR runtime (onnxruntime-web)
-        run: |
-          set -e
-          DEST="$GITHUB_WORKSPACE/app/src/main/assets/ocr"
-          mkdir -p "$DEST"
-          cd /tmp
-          npm pack onnxruntime-web@1.18.0
-          tar -xzf onnxruntime-web-1.18.0.tgz
-          find /tmp/package/dist -maxdepth 1 -type f -exec cp -f {} "$DEST/" \;
-          ls -lh "$DEST" | head -20
-
-      - name: Bundle OCR models (PP-OCRv5 mobile)
-        run: |
-          set -e
-          DEST="$GITHUB_WORKSPACE/app/src/main/assets/ocr"
-          mkdir -p "$DEST"
-          BASE="https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0"
-
-          curl -fL --retry 3 --retry-delay 2 -o "$DEST/det.onnx" \
-            "$BASE/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx"
-          curl -fL --retry 3 --retry-delay 2 -o "$DEST/rec.onnx" \
-            "$BASE/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx"
-          curl -fL --retry 3 --retry-delay 2 -o "$DEST/dict.txt" \
-            "$BASE/paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt"
-
-          echo "---- 校验 ----"
-          echo "det sha: $(sha256sum "$DEST/det.onnx" | cut -d' ' -f1)"
-          echo "rec sha: $(sha256sum "$DEST/rec.onnx" | cut -d' ' -f1)"
-          echo "字典行数: $(wc -l < "$DEST/dict.txt")"
-          ls -lh "$DEST/det.onnx" "$DEST/rec.onnx" "$DEST/dict.txt" "$DEST/ort.min.js"
-
-          test -s "$DEST/det.onnx"
-          test -s "$DEST/rec.onnx"
-          test -s "$DEST/dict.txt"
-          test -s "$DEST/ort.min.js"
-
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
 
