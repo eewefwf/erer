@@ -208,6 +208,17 @@ const COLUMN_MAP = {
     "多元醇": [2]
 };
 const POLYOL_FACTOR = 0.05;
+
+/* 每种物料的单位（固定）：l 单位的行，末尾那个"1"是单位不是数字 */
+const UNITS = {
+    "MDI": "kg",
+    "乳剂": "l",
+    "尿素": "l",
+    "增粘剂": "l",
+    "水": "l",
+    "热蜡": "kg",
+    "多元醇": "kg"
+};
 const DRAFT_KEY = "formula-calc-draft-v2";
 
 let data = MATERIALS.map(name => ({ name, f: 0, s: 0, c: 0 }));
@@ -862,23 +873,35 @@ async function recognizeCell(img, box) {
 
     // "0 l" 常被认成 "01" / "0l"，这种绝无可能是真值，直接归 0
     if (/^0+\s*[1lI]$/.test(t) || /^[Oo]\s*[1lI]$/.test(t)) {
-        return { text: "0", value: 0, rect: box };
+        return { text: "0", value: 0, rect: box, ambiguous: false };
     }
 
     // 以 1 结尾的数字，很可能是把单位 l 认成了 1
-    if (!/[0-9]1$/.test(t)) return { text: full, value: fullVal, rect: box };
+    if (!/[0-9]1$/.test(t)) return { text: full, value: fullVal, rect: box, ambiguous: false };
 
     const s = splitUnit(img, box);
-    if (!s.unit) return { text: full, value: fullVal, rect: box };
+    if (!s.unit) return { text: full, value: fullVal, rect: box, ambiguous: false };
 
     const mainTxt = await recRegion(img, s.main);
     const unitTxt = await recRegion(img, s.unit);
     const mainVal = toNumber(mainTxt);
-    // 切开后尾巴必须不含数字，才认可这次切分
-    if (mainVal !== null && !/\d/.test(unitTxt)) {
-        return { text: mainTxt, value: mainVal, rect: s.main };
+    if (mainVal === null) return { text: full, value: fullVal, rect: box, ambiguous: false };
+
+    // 尾巴是两个以上字母（kg / ml 之类）→ 肯定是单位，直接采信切分
+    const u = String(unitTxt || "").trim();
+    if (/[a-zA-Z]/.test(u) && !/^[lIi|]$/.test(u)) {
+        return { text: mainTxt, value: mainVal, rect: s.main, ambiguous: false };
     }
-    return { text: full, value: fullVal, rect: box };
+
+    // 尾巴是 1 / l / I 这种分不清的 → 交给"整行单位"来裁决
+    return {
+        text: mainTxt,
+        value: mainVal,
+        altValue: fullVal,
+        unit: u,
+        ambiguous: true,
+        rect: s.main
+    };
 }
 
 /* 一维 k-means：把数值分成 k 簇 */
@@ -1008,7 +1031,15 @@ function rebuildTable(items, words) {
     // 先估倾角、把 y 扭正，再分行（照片轻微倾斜会让同一行的左格落到下一行）
     dbgTilt = bestTilt(items);
     const tanT = Math.tan(dbgTilt * Math.PI / 180);
-    const corrected = items.map(it => ({ value: it.value, x: it.x, y: it.y - it.x * tanT, h: it.h }));
+    const corrected = items.map(it => ({
+        value: it.value,
+        altValue: it.altValue,
+        unit: it.unit,
+        ambiguous: it.ambiguous,
+        x: it.x,
+        y: it.y - it.x * tanT,
+        h: it.h
+    }));
 
     // 行中心：优先用「物料名」的实际 y；名字认不到时退回等距插值
     const anchors = rowAnchorsFromNames(words, tanT);
@@ -1056,18 +1087,33 @@ function rebuildTable(items, words) {
         rows[bi].push(it);
     }
 
+    // 整行单位投票（兜底）：这行出现过 kg，说明"以 1 结尾"里的 1 是数字
+    for (const row of rows) {
+        const isKg = row.some(c => /[kKgG]/.test(String(c.unit || "")));
+        if (!isKg) continue;
+        for (const c of row) {
+            if (c.ambiguous && c.altValue !== undefined && c.altValue !== null) c.value = c.altValue;
+        }
+    }
+
     const out = new Map();
     MATERIALS.forEach((m, i) => {
         const cell = { f: 0, s: 0, c: 0 };
+        const isL = UNITS[m] === "l";   // 这行的单位是不是 l
         for (const n of rows[i]) {
+            let v = n.value;
+            if (n.ambiguous) {
+                // l 单位：末尾的 1 是单位，用切开后的值；kg 单位：那个 1 是数字，用原值
+                if (!isL && n.altValue !== undefined && n.altValue !== null) v = n.altValue;
+            }
             let bi = 0, bd = Infinity;
             for (let k = 0; k < 3; k++) {
                 const d = Math.abs(n.x - colX[k]);
                 if (d < bd) { bd = d; bi = k; }
             }
-            if (bi === 0) cell.f = n.value;
-            else if (bi === 1) cell.s = n.value;
-            else cell.c = n.value;
+            if (bi === 0) cell.f = v;
+            else if (bi === 1) cell.s = v;
+            else cell.c = v;
         }
         out.set(m, cell);
     });
@@ -1137,6 +1183,9 @@ async function recognizeFile(file) {
             if (res.value !== null && res.value !== undefined) {
                 cells.push({
                     value: res.value,
+                    altValue: res.altValue,
+                    unit: res.unit,
+                    ambiguous: !!res.ambiguous,
                     x: res.rect.x + res.rect.w / 2,
                     y: res.rect.y + res.rect.h / 2,
                     w: res.rect.w,
