@@ -1,22 +1,69 @@
 name: Build APK
+
+# 推代码或手动点一下，云端自动编译出可安装的 APK
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-      - run: gradle assembleDebug --no-daemon --stacktrace
-      - uses: actions/upload-artifact@v4
+
+      # 1) 把 onnxruntime-web 的 JS/WASM 运行时打进 APK
+      - name: Bundle OCR runtime (onnxruntime-web)
+        run: |
+          set -e
+          DEST="$GITHUB_WORKSPACE/app/src/main/assets/ocr"
+          mkdir -p "$DEST"
+          cd /tmp
+          npm pack onnxruntime-web@1.18.0
+          tar -xzf onnxruntime-web-1.18.0.tgz
+          find /tmp/package/dist -maxdepth 1 -type f -exec cp -f {} "$DEST/" \;
+          ls -lh "$DEST" | head -30
+
+      # 2) 从 RapidOCR 的 wheel 里取出 PP-OCRv4 的检测/识别模型和字典
+      - name: Bundle OCR models (PP-OCRv4)
+        run: |
+          set -e
+          DEST=$GITHUB_WORKSPACE/app/src/main/assets/ocr
+          mkdir -p "$DEST" /tmp/whl /tmp/whl/x
+          python -m pip download --no-deps -d /tmp/whl rapidocr_onnxruntime==1.3.24
+          unzip -o -q /tmp/whl/*.whl -d /tmp/whl/x
+          DET=$(find /tmp/whl/x -name "*det*infer*.onnx" | head -1)
+          REC=$(find /tmp/whl/x -name "*rec*infer*.onnx" | head -1)
+          DICT=$(find /tmp/whl/x -name "ppocr_keys_v1.txt" | head -1)
+          echo "DET=$DET"
+          echo "REC=$REC"
+          echo "DICT=$DICT"
+          test -n "$DET" && test -n "$REC" && test -n "$DICT"
+          cp -f "$DET"  "$DEST/ch_PP-OCRv4_det_infer.onnx"
+          cp -f "$REC"  "$DEST/ch_PP-OCRv4_rec_infer.onnx"
+          cp -f "$DICT" "$DEST/ppocr_keys_v1.txt"
+          test -f "$DEST/ch_PP-OCRv4_det_infer.onnx"
+          test -f "$DEST/ch_PP-OCRv4_rec_infer.onnx"
+          test -f "$DEST/ppocr_keys_v1.txt"
+          ls -lh "$DEST"
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: formula-calc-apk
           path: app/build/outputs/apk/debug/app-debug.apk
