@@ -90,12 +90,11 @@
     details.help { margin-top: 14px; font-size: 13px; color: var(--text-light); }
     details.help summary { cursor: pointer; font-weight: 600; color: var(--dark); padding: 6px 0; -webkit-user-select: none; user-select: none; }
     details.help ol { margin: 6px 0 0 18px; line-height: 1.8; }
-    details.help code { background: #f1f5f9; padding: 1px 4px; border-radius: 4px; font-size: 12px; color: #0f172a; }
 </style>
 </head>
 <body>
 <div class="box">
-    <div class="title">📦 物料配方计算器 <span class="badge">计算完全离线</span></div>
+    <div class="title">📦 物料配方计算器 <span class="badge">PP-OCRv4 · 纯本地</span></div>
 
     <div class="bar">
         <div class="input-group">
@@ -120,7 +119,7 @@
     </div>
 
     <div class="section-title">📋 识别结果 <small>可手动修改后点「重新计算」</small></div>
-    <textarea class="paste-box" id="pasteInput" placeholder="点【拍照识别】或【相册】自动填入；也可以直接粘贴/手打配方文字，再点「重新计算」。" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+    <textarea class="paste-box" id="pasteInput" placeholder="点【拍照识别】或【相册】自动填入；也可以把布丁/微信识别出来的文字直接粘贴到这里，再点「重新计算」。" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
 
     <div class="section-title">✏️ 原始数据 <small>点数字可直接改</small></div>
     <div class="table-scroll">
@@ -141,10 +140,10 @@
     <details class="help">
         <summary>❓ 使用说明</summary>
         <ol>
-            <li><b>拍照识别</b>：点按钮 → 调系统相机 → 拍完自动识别并填表。识别模型已内置在 App 里，<b>不需要联网</b>。</li>
-            <li><b>识别不准</b>：识别原文都在上方文本框里，改完点「重新计算」即可，不用重拍。</li>
-            <li><b>手改数据</b>：点「原始数据」里的数字直接改，结果实时跟着变。</li>
-            <li><b>草稿</b>：改动会自动保存，退出 App 再进来数据还在；点「清空」才会删除。</li>
+            <li><b>识别引擎</b>：PP-OCRv4（和微信/白描同族的开源引擎），模型打包在 App 里，<b>完全离线</b>，不上传任何图片。</li>
+            <li><b>第一次识别慢一点</b>：要在手机里加载约 15MB 的模型，之后会快很多。</li>
+            <li><b>识别不准</b>：原文都在上方文本框里，改完点「重新计算」。</li>
+            <li><b>表格还原</b>：会先找出 7 行 × 3 列的数字，按坐标填表；中文物料名认不出也不影响。</li>
         </ol>
     </details>
 </div>
@@ -155,7 +154,7 @@
 <input type="file" id="fileLib" accept="image/*" hidden>
 
 <script>
-/* 全局错误显示：任何脚本错误都直接写在页面上，方便截图反馈 */
+/* 全局错误显示：脚本出错时直接显示在页面上，方便截图反馈 */
 window.onerror = function (msg, src, line, col) {
     function show() {
         var box = document.getElementById("ocrStatus");
@@ -184,7 +183,7 @@ const COLUMN_MAP = {
     "多元醇": [2]
 };
 const POLYOL_FACTOR = 0.05;
-const DRAFT_KEY = "formula-calc-draft-v1";
+const DRAFT_KEY = "formula-calc-draft-v2";
 
 let data = MATERIALS.map(name => ({ name, f: 0, s: 0, c: 0 }));
 
@@ -223,7 +222,7 @@ async function copyText(text) {
             showToast("已复制 " + text);
             return;
         }
-    } catch (e) { /* 落到兜底 */ }
+    } catch (e) {}
     const ta = document.createElement("textarea");
     ta.value = text;
     ta.setAttribute("readonly", "");
@@ -238,7 +237,7 @@ async function copyText(text) {
 }
 
 /* =========================================================
-   3. 文本解析
+   3. 文本解析（粘贴文字时用）
    ========================================================= */
 function normalizeText(raw) {
     return String(raw || "")
@@ -267,7 +266,6 @@ function smartParseOCR(fullText) {
     if (!text.trim()) return result;
 
     const lines = text.split(/\r?\n/);
-
     const firstLine = new Map();
     lines.forEach((line, i) => {
         detectMaterials(line).forEach(m => {
@@ -513,99 +511,31 @@ function loadDraft() {
 $("pasteInput").addEventListener("input", saveDraftSoon);
 
 /* =========================================================
-   8. 拍照 / OCR
+   8. PP-OCRv4 引擎（onnxruntime-web，纯本地）
    ========================================================= */
-const OCR_CDN = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
-let ocrWorker = null;
-let tesseractPromise = null;
+const OCR_BASE = "https://appassets.androidplatform.net/assets/ocr/";
+const DET_FILE = "ch_PP-OCRv4_det_infer.onnx";
+const REC_FILE = "ch_PP-OCRv4_rec_infer.onnx";
+const DICT_FILE = "ppocr_keys_v1.txt";
+
+let ortLib = null;
+let detSession = null;
+let recSession = null;
+let ocrDict = [];
+let enginePromise = null;
 
 function loadScriptOnce(src) {
     return new Promise((resolve, reject) => {
-        const existed = document.querySelector('script[data-src="' + src + '"]');
-        if (existed) { resolve(); return; }
+        if (window.ort && src.indexOf("ort") >= 0) { resolve(); return; }
         const s = document.createElement("script");
         s.src = src;
         s.async = true;
-        s.dataset.src = src;
         s.onload = () => resolve();
-        s.onerror = () => reject(new Error("识别引擎加载失败（可能是断网或 CDN 被拦截）"));
+        s.onerror = () => reject(new Error("引擎脚本加载失败：" + src));
         document.head.appendChild(s);
     });
 }
 
-async function ensureTesseract() {
-    if (window.Tesseract) return window.Tesseract;
-    if (!tesseractPromise) {
-        tesseractPromise = loadScriptOnce(OCR_CDN).then(() => {
-            if (!window.Tesseract) throw new Error("识别引擎加载失败");
-            return window.Tesseract;
-        });
-        tesseractPromise.catch(() => { tesseractPromise = null; });
-    }
-    return tesseractPromise;
-}
-
-function shrinkImage(file, maxSide) {
-    return new Promise((resolve, reject) => {
-        const url = URL.createObjectURL(file);
-        const img = new Image();
-        img.onload = () => {
-            URL.revokeObjectURL(url);
-            const scale = Math.min(1, (maxSide || 1800) / Math.max(img.width, img.height));
-            if (scale >= 0.999) {
-                const fr = new FileReader();
-                fr.onload = () => resolve({ blob: file, dataUrl: fr.result });
-                fr.onerror = () => resolve({ blob: file, dataUrl: "" });
-                fr.readAsDataURL(file);
-                return;
-            }
-            const cv = document.createElement("canvas");
-            cv.width = Math.round(img.width * scale);
-            cv.height = Math.round(img.height * scale);
-            const ctx = cv.getContext("2d");
-            ctx.drawImage(img, 0, 0, cv.width, cv.height);
-            cv.toBlob(b => {
-                resolve({ blob: b, dataUrl: cv.toDataURL("image/jpeg", 0.85) });
-            }, "image/jpeg", 0.9);
-        };
-        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("图片读取失败")); };
-        img.src = url;
-    });
-}
-
-function showThumb(dataUrl, text) {
-    if (!dataUrl) { hideThumb(); return; }
-    $("thumbImg").src = dataUrl;
-    $("thumbText").textContent = text || "";
-    $("thumbWrap").classList.add("show");
-}
-function hideThumb() {
-    $("thumbWrap").classList.remove("show");
-    $("thumbImg").removeAttribute("src");
-}
-
-async function getWorker() {
-    if (ocrWorker) return ocrWorker;
-    const T = await ensureTesseract();
-    setStatus("正在加载中文识别模型…");
-    // 中文模型已打包在 APK 里（assets/tessdata），不再联网下载
-    ocrWorker = await T.createWorker("chi_sim", 1, {
-        langPath: "https://appassets.androidplatform.net/assets/tessdata",
-        logger: m => {
-            if (!m) return;
-            const p = Math.round((m.progress || 0) * 100);
-            if (m.status === "loading language traineddata") setStatus("正在加载中文模型 " + p + "%");
-            else if (m.status === "loading tesseract core") setStatus("正在加载识别引擎 " + p + "%");
-            else if (m.status === "initializing tesseract") setStatus("引擎初始化中…");
-            else if (m.status === "recognizing text") setStatus("正在识别文字 " + p + "%");
-        }
-    });
-    // 表格用"整块文本"版面模式，比默认的自动分栏稳
-    try { await ocrWorker.setParameters({ tessedit_pageseg_mode: "6" }); } catch (e) {}
-    return ocrWorker;
-}
-
-/* ---------- 图像工具 ---------- */
 function loadImage(file) {
     return new Promise((resolve, reject) => {
         const url = URL.createObjectURL(file);
@@ -616,142 +546,244 @@ function loadImage(file) {
     });
 }
 
-function canvasToBlob(cv) {
-    return new Promise(resolve => cv.toBlob(b => resolve(b), "image/png"));
+async function fetchArrayBuffer(name) {
+    const res = await fetch(OCR_BASE + name);
+    if (!res.ok) throw new Error("找不到模型文件：" + name);
+    return await res.arrayBuffer();
 }
 
-/**
- * 预处理：缩放 → 旋转 → 灰度 → 对比拉伸 → Otsu 二值化
- * 屏幕照片的摩尔纹、发灰、网格线基本都在这一步被压掉
- */
-function preprocess(img, angleDeg, maxSide) {
-    const s = Math.min(3, maxSide / Math.max(img.width, img.height));
-    const w = Math.max(1, Math.round(img.width * s));
-    const h = Math.max(1, Math.round(img.height * s));
+function initEngine() {
+    if (enginePromise) return enginePromise;
+    enginePromise = (async () => {
+        setStatus("正在加载识别引擎…");
+        await loadScriptOnce(OCR_BASE + "ort.min.js");
+        if (!window.ort) throw new Error("onnxruntime 未就绪（assets/ocr/ort.min.js）");
+        ortLib = window.ort;
+        try {
+            ortLib.env.wasm.wasmPaths = OCR_BASE;
+            ortLib.env.wasm.numThreads = 1;
+            ortLib.env.wasm.simd = true;
+            ortLib.env.logLevel = "error";
+        } catch (e) {}
 
-    const rad = (angleDeg || 0) * Math.PI / 180;
-    const cw = Math.ceil(Math.abs(w * Math.cos(rad)) + Math.abs(h * Math.sin(rad))) + 2;
-    const ch = Math.ceil(Math.abs(w * Math.sin(rad)) + Math.abs(h * Math.cos(rad))) + 2;
+        setStatus("正在读取模型文件…");
+        const [detBuf, recBuf, dictRes] = await Promise.all([
+            fetchArrayBuffer(DET_FILE),
+            fetchArrayBuffer(REC_FILE),
+            fetch(OCR_BASE + DICT_FILE)
+        ]);
+        if (!dictRes.ok) throw new Error("找不到字典文件：" + DICT_FILE);
+        const dictText = await dictRes.text();
+        ocrDict = dictText.split(/\r?\n/).filter(s => s.length > 0);
+
+        setStatus("正在初始化检测模型…");
+        detSession = await ortLib.InferenceSession.create(detBuf, {
+            executionProviders: ["wasm"],
+            graphOptimizationLevel: "all"
+        });
+
+        setStatus("正在初始化识别模型…");
+        recSession = await ortLib.InferenceSession.create(recBuf, {
+            executionProviders: ["wasm"],
+            graphOptimizationLevel: "all"
+        });
+        setStatus("");
+    })();
+    enginePromise.catch(() => { enginePromise = null; });
+    return enginePromise;
+}
+
+/* 连通域：把检测概率图切成一个个文字块 */
+function connectedBoxes(mask, h, w, boxThresh, prob) {
+    const visited = new Uint8Array(h * w);
+    const stack = new Int32Array(h * w);
+    const boxes = [];
+    for (let i = 0; i < h * w; i++) {
+        if (!mask[i] || visited[i]) continue;
+        let sp = 0;
+        stack[sp++] = i;
+        visited[i] = 1;
+        let minx = w, miny = h, maxx = 0, maxy = 0, cnt = 0, sum = 0;
+        while (sp > 0) {
+            const p = stack[--sp];
+            const x = p % w;
+            const y = (p - x) / w;
+            cnt++;
+            sum += prob[p];
+            if (x < minx) minx = x;
+            if (x > maxx) maxx = x;
+            if (y < miny) miny = y;
+            if (y > maxy) maxy = y;
+            for (let dy = -1; dy <= 1; dy++) {
+                const ny = y + dy;
+                if (ny < 0 || ny >= h) continue;
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx;
+                    if (nx < 0 || nx >= w) continue;
+                    const q = ny * w + nx;
+                    if (mask[q] && !visited[q]) {
+                        visited[q] = 1;
+                        stack[sp++] = q;
+                    }
+                }
+            }
+        }
+        if (cnt < 8) continue;
+        if (sum / cnt < boxThresh) continue;
+        boxes.push({ x1: minx, y1: miny, x2: maxx + 1, y2: maxy + 1 });
+    }
+    return boxes;
+}
+
+/* 检测：整图 → 文字框（原图坐标） */
+async function detectBoxes(img) {
+    const maxSide = 960;
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const w = Math.max(32, Math.round(img.width * scale / 32) * 32);
+    const h = Math.max(32, Math.round(img.height * scale / 32) * 32);
 
     const cv = document.createElement("canvas");
-    cv.width = cw;
-    cv.height = ch;
+    cv.width = w;
+    cv.height = h;
     const ctx = cv.getContext("2d", { willReadFrequently: true });
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, cw, ch);
-    ctx.translate(cw / 2, ch / 2);
-    ctx.rotate(rad);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const src = ctx.getImageData(0, 0, w, h).data;
 
-    const imgData = ctx.getImageData(0, 0, cw, ch);
-    const d = imgData.data;
-    const n = cw * ch;
-    const gray = new Uint8ClampedArray(n);
-    let mn = 255, mx = 0;
-    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
-        const g = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-        gray[j] = g;
-        if (g < mn) mn = g;
-        if (g > mx) mx = g;
-    }
-    const range = Math.max(1, mx - mn);
-    for (let j = 0; j < n; j++) gray[j] = Math.round((gray[j] - mn) * 255 / range);
-
-    const hist = new Float64Array(256);
-    for (let j = 0; j < n; j++) hist[gray[j]]++;
-    let sum = 0;
-    for (let t = 0; t < 256; t++) sum += t * hist[t];
-    let sumB = 0, wB = 0, best = 0, thr = 128;
-    for (let t = 0; t < 256; t++) {
-        wB += hist[t];
-        if (wB === 0) continue;
-        const wF = n - wB;
-        if (wF === 0) break;
-        sumB += t * hist[t];
-        const mB = sumB / wB, mF = (sum - sumB) / wF;
-        const v = wB * wF * (mB - mF) * (mB - mF);
-        if (v > best) { best = v; thr = t; }
+    const area = w * h;
+    const input = new Float32Array(3 * area);
+    const mean = [0.485, 0.456, 0.406];
+    const std = [0.229, 0.224, 0.225];
+    for (let i = 0, p = 0; i < src.length; i += 4, p++) {
+        input[p] = (src[i] / 255 - mean[0]) / std[0];
+        input[p + area] = (src[i + 1] / 255 - mean[1]) / std[1];
+        input[p + 2 * area] = (src[i + 2] / 255 - mean[2]) / std[2];
     }
 
-    for (let j = 0, k = 0; j < n; j++, k += 4) {
-        const v = gray[j] > thr ? 255 : 0;
-        d[k] = d[k + 1] = d[k + 2] = v;
-        d[k + 3] = 255;
+    const feeds = {};
+    feeds[detSession.inputNames[0]] = new ortLib.Tensor("float32", input, [1, 3, h, w]);
+    const out = await detSession.run(feeds);
+    const o = out[detSession.outputNames[0]];
+    const dims = o.dims;
+    const oh = dims[dims.length - 2];
+    const ow = dims[dims.length - 1];
+    const prob = o.data;
+
+    const mask = new Uint8Array(oh * ow);
+    for (let i = 0; i < oh * ow; i++) mask[i] = prob[i] > 0.3 ? 1 : 0;
+
+    const raw = connectedBoxes(mask, oh, ow, 0.5, prob);
+    const sx = img.width / ow;
+    const sy = img.height / oh;
+
+    const boxes = [];
+    for (const b of raw) {
+        let x1 = b.x1 * sx, y1 = b.y1 * sy, x2 = b.x2 * sx, y2 = b.y2 * sy;
+        let bw = x2 - x1, bh = y2 - y1;
+        if (bw < 4 || bh < 4) continue;
+        const d = (bw * bh * 1.5) / (2 * (bw + bh));
+        x1 = Math.max(0, x1 - d);
+        y1 = Math.max(0, y1 - d);
+        x2 = Math.min(img.width, x2 + d);
+        y2 = Math.min(img.height, y2 + d);
+        bw = x2 - x1;
+        bh = y2 - y1;
+        if (bw < 6 || bh < 6) continue;
+        boxes.push({ x: x1, y: y1, w: bw, h: bh });
     }
-    ctx.putImageData(imgData, 0, 0);
-    return cv;
+    return boxes;
 }
 
-/* ---------- TSV：带坐标的识别结果 ---------- */
-function parseTsv(tsv) {
-    const words = [];
-    if (!tsv) return words;
-    const lines = String(tsv).split(/\r?\n/);
-    for (let i = 1; i < lines.length; i++) {
-        const c = lines[i].split("\t");
-        if (c.length < 12 || c[0] !== "5") continue;
-        const txt = (c[11] || "").trim();
-        if (!txt) continue;
-        const conf = parseFloat(c[10]);
-        if (!(conf >= 20)) continue;
-        words.push({
-            text: txt,
-            x: parseFloat(c[6]) || 0,
-            y: parseFloat(c[7]) || 0,
-            w: parseFloat(c[8]) || 0,
-            h: parseFloat(c[9]) || 0
-        });
+/* 识别：单个文字块 → 字符串 */
+function ctcDecode(data, dims) {
+    const T = dims[dims.length - 2];
+    const C = dims[dims.length - 1];
+    let text = "";
+    let last = -1;
+    for (let t = 0; t < T; t++) {
+        const base = t * C;
+        let best = 0;
+        let bv = -Infinity;
+        for (let c = 0; c < C; c++) {
+            const v = data[base + c];
+            if (v > bv) { bv = v; best = c; }
+        }
+        if (best === 0) { last = 0; continue; }
+        if (best === last) { last = best; continue; }
+        last = best;
+        if (best - 1 < ocrDict.length) text += ocrDict[best - 1];
+        else text += " ";
     }
-    return words;
+    return text;
 }
 
-/**
- * 按坐标还原表格：
- * 表头 FSL/SL/CL 定列，数字聚成 7 行按物料固定顺序对应。
- * 中文物料名认不出来也没关系。
- */
-function rebuildByPosition(words) {
-    if (!words || words.length < 8) return null;
+async function recognizeBox(img, box) {
+    const H = 48;
+    let W = Math.round(H * box.w / Math.max(1, box.h));
+    W = Math.min(720, Math.max(16, W));
 
-    // 1) 三列表头
+    const cv = document.createElement("canvas");
+    cv.width = W;
+    cv.height = H;
+    const ctx = cv.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, W, H);
+    const src = ctx.getImageData(0, 0, W, H).data;
+
+    const area = W * H;
+    const input = new Float32Array(3 * area);
+    for (let i = 0, p = 0; i < src.length; i += 4, p++) {
+        input[p] = (src[i] / 255 - 0.5) / 0.5;
+        input[p + area] = (src[i + 1] / 255 - 0.5) / 0.5;
+        input[p + 2 * area] = (src[i + 2] / 255 - 0.5) / 0.5;
+    }
+
+    const feeds = {};
+    feeds[recSession.inputNames[0]] = new ortLib.Tensor("float32", input, [1, 3, H, W]);
+    const out = await recSession.run(feeds);
+    const o = out[recSession.outputNames[0]];
+    return ctcDecode(o.data, o.dims);
+}
+
+/* 按坐标还原表格：表头定列，数字按行聚簇 */
+function rebuildByPosition(boxes) {
+    if (!boxes || boxes.length < 6) return null;
+
     const cols = [null, null, null];
-    for (const w of words) {
-        const t = w.text.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    for (const b of boxes) {
+        const t = String(b.text).toUpperCase().replace(/[^A-Z0-9]/g, "");
         let idx = -1;
         if (t === "FSL" || t === "FS1" || t === "FSI") idx = 0;
         else if (t === "SL" || t === "S1" || t === "SI") idx = 1;
         else if (t === "CL" || t === "C1" || t === "CI") idx = 2;
         if (idx < 0) continue;
-        const cx = w.x + w.w / 2;
-        if (cols[idx] === null || w.y < cols[idx].y) cols[idx] = { x: cx, y: w.y };
+        const cx = b.x + b.w / 2;
+        if (cols[idx] === null || b.y < cols[idx].y) cols[idx] = { x: cx, y: b.y };
     }
     if (!cols[0] || !cols[1] || !cols[2]) return null;
 
-    // 2) 数字
     const nums = [];
-    for (const w of words) {
-        const t = w.text.replace(/[,，]/g, "");
-        if (!/^\d{1,5}$/.test(t)) continue;
-        nums.push({ v: parseFloat(t), x: w.x + w.w / 2, y: w.y, h: w.h || 1 });
+    for (const b of boxes) {
+        const found = String(b.text).match(/\d{1,5}/g);
+        if (!found) continue;
+        const k = found.length;
+        found.forEach((s, i) => {
+            const cx = b.x + b.w * (k === 1 ? 0.5 : (i + 0.5) / k);
+            nums.push({ v: parseFloat(s), x: cx, y: b.y + b.h / 2, h: b.h });
+        });
     }
     if (nums.length < 7) return null;
 
-    // 3) 按 y 聚成行
     nums.sort((a, b) => a.y - b.y);
-    let rows = [];
+    const rows = [];
     let cur = [nums[0]];
     for (let i = 1; i < nums.length; i++) {
         const prev = cur[cur.length - 1];
-        if (nums[i].y - prev.y > Math.max(6, prev.h * 1.5)) { rows.push(cur); cur = [nums[i]]; }
+        if (nums[i].y - prev.y > Math.max(8, prev.h * 1.4)) { rows.push(cur); cur = [nums[i]]; }
         else cur.push(nums[i]);
     }
     rows.push(cur);
 
     const rowCenter = r => r.reduce((s, x) => s + x.y, 0) / r.length;
 
-    // 4) 行数多了就合并最接近的两行
     while (rows.length > MATERIALS.length) {
         let bi = 0, bd = Infinity;
         for (let i = 0; i < rows.length - 1; i++) {
@@ -763,7 +795,6 @@ function rebuildByPosition(words) {
     }
     if (rows.length !== MATERIALS.length) return null;
 
-    // 5) 每个数字按 x 归到最近的列
     const out = new Map();
     MATERIALS.forEach((m, i) => {
         const cell = { f: 0, s: 0, c: 0 };
@@ -782,23 +813,7 @@ function rebuildByPosition(words) {
     return out;
 }
 
-function materialHits(text) {
-    let n = 0;
-    for (const m of MATERIALS) if (text.indexOf(m) >= 0) n++;
-    return n;
-}
-
-function scoreText(text) {
-    if (!text) return -999;
-    let s = materialHits(text) * 20;
-    const nums = text.match(/\d{2,5}/g) || [];
-    s += Math.min(nums.length, 30);
-    const junk = text.replace(/[\u4e00-\u9fa5A-Za-z0-9\s.,:;()\-%/]/g, "").length;
-    s -= Math.min(junk, 40);
-    return s;
-}
-
-/* ---------- 主流程：多角度识别，取最好的一次 ---------- */
+/* 主流程 */
 async function recognizeFile(file) {
     if (!file) return;
     if (!file.type || !file.type.startsWith("image/")) {
@@ -808,75 +823,77 @@ async function recognizeFile(file) {
     $("btnCam").disabled = true;
     $("btnLib").disabled = true;
     try {
-        setStatus("正在读取图片…");
         const img = await loadImage(file);
-        const worker = await getWorker();
+        showThumb(URL.createObjectURL(file), "已读取照片");
 
-        const angles = [0, -3, 3, -5, 5];
-        let best = null;
+        await initEngine();
 
-        for (let i = 0; i < angles.length; i++) {
-            const a = angles[i];
-            setStatus("正在识别…（第 " + (i + 1) + "/" + angles.length + " 次，纠偏 " + a + "°）");
-
-            const cv = preprocess(img, a, 2200);
-            const blob = await canvasToBlob(cv);
-
-            let text = "", words = [];
-            try {
-                const res = await worker.recognize(blob, {}, { tsv: true, text: true });
-                text = (res.data && res.data.text ? res.data.text : "").trim();
-                words = parseTsv(res.data && res.data.tsv);
-            } catch (e) {
-                const res = await worker.recognize(blob);
-                text = (res.data && res.data.text ? res.data.text : "").trim();
-            }
-
-            const rebuilt = rebuildByPosition(words);
-            const score = scoreText(text) + (rebuilt ? 500 : 0);
-            if (!best || score > best.score) best = { a, text, words, rebuilt, score };
-
-            // 已经按坐标还原出整张表，不用再试别的角度
-            if (rebuilt) break;
-        }
-
-        if (!best || !best.text) {
-            setStatus("没识别到文字。把手机横过来正对表格、离近一点、开灯再拍一次。", true);
+        setStatus("正在检测文字区域…");
+        const boxes = await detectBoxes(img);
+        if (!boxes.length) {
+            setStatus("没检测到文字。正对表格、离近一点、开灯再拍一次。", true);
             return;
         }
 
-        showThumb(URL.createObjectURL(file), "识别完成（纠偏 " + best.a + "°）");
-        $("pasteInput").value = best.text;
+        boxes.sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2) || a.x - b.x);
 
-        let hit;
-        if (best.rebuilt) {
-            hit = applyParsed(best.rebuilt);
-        } else {
-            hit = applyParsed(smartParseOCR(best.text));
+        const words = [];
+        for (let i = 0; i < boxes.length; i++) {
+            setStatus("正在识别 " + (i + 1) + " / " + boxes.length + " …");
+            let txt = "";
+            try { txt = await recognizeBox(img, boxes[i]); } catch (e) { txt = ""; }
+            txt = String(txt || "").trim();
+            if (txt) words.push({ text: txt, x: boxes[i].x, y: boxes[i].y, w: boxes[i].w, h: boxes[i].h });
         }
+
+        if (!words.length) {
+            setStatus("检测到了位置，但一个字也没认出来。把照片拍清楚一点再试。", true);
+            return;
+        }
+
+        const fullText = words.map(w => w.text).join("\n");
+        $("pasteInput").value = fullText;
+
+        const rebuilt = rebuildByPosition(words);
+        const hit = rebuilt ? applyParsed(rebuilt) : applyParsed(smartParseOCR(fullText));
+
         renderAll();
         saveDraftSoon();
 
-        if (best.rebuilt) {
+        if (rebuilt) {
             setStatus("");
-            showToast("识别成功（按坐标还原整张表）");
+            showToast("识别成功（按坐标还原整张表）", 2200);
         } else if (hit > 0) {
             setStatus("");
             showToast("识别成功（" + hit + " 种物料）");
         } else {
-            setStatus("文字读出来了，但没还原成表格。原文在上方文本框，可以手动改完点「重新计算」。\n提示：把表格拍正、只拍表格区域，识别率会高很多。", true);
+            setStatus("读到 " + words.length + " 段文字，但没还原成表格。原文在上方文本框，可手动改完点「重新计算」。", true);
             showToast("未还原成表格，请核对文字");
         }
+        $("thumbText").textContent = "识别完成（" + words.length + " 段）";
     } catch (e) {
-        setStatus((e && e.message ? e.message : String(e)) + "\n可以直接粘贴文字，或用「重新计算」手动录入。", true);
+        setStatus((e && e.message ? e.message : String(e)) + "\n可以把布丁/微信识别的文字直接粘贴到上面，再点「重新计算」。", true);
     } finally {
         $("btnCam").disabled = false;
         $("btnLib").disabled = false;
     }
 }
 
+/* =========================================================
+   9. 相机 / 相册
+   ========================================================= */
+function showThumb(dataUrl, text) {
+    if (!dataUrl) { hideThumb(); return; }
+    $("thumbImg").src = dataUrl;
+    $("thumbText").textContent = text || "";
+    $("thumbWrap").classList.add("show");
+}
+function hideThumb() {
+    $("thumbWrap").classList.remove("show");
+    $("thumbImg").removeAttribute("src");
+}
+
 function startCamera() {
-    // 若将来在壳里加了原生 PaddleOCR 桥，这里会自动优先用原生
     if (window.Android && typeof window.Android.startCameraOCR === "function") {
         try { window.Android.startCameraOCR(); return; } catch (e) {}
     }
@@ -902,6 +919,7 @@ $("fileLib").addEventListener("change", e => {
     recognizeFile(f);
 });
 
+/* 兼容原生壳回调 */
 window.receiveOCRResult = function (text) {
     $("pasteInput").value = text || "";
     const hit = applyParsed(smartParseOCR(text));
@@ -912,7 +930,7 @@ window.receiveOCRResult = function (text) {
 };
 
 /* =========================================================
-   9. 启动
+   10. 启动
    ========================================================= */
 (function init() {
     const restored = loadDraft();
