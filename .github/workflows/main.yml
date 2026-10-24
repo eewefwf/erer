@@ -40,23 +40,46 @@ jobs:
       - name: Bundle OCR models (PP-OCRv4)
         run: |
           set -e
-          DEST=$GITHUB_WORKSPACE/app/src/main/assets/ocr
+          DEST="$GITHUB_WORKSPACE/app/src/main/assets/ocr"
           mkdir -p "$DEST" /tmp/whl /tmp/whl/x
           python -m pip download --no-deps -d /tmp/whl rapidocr_onnxruntime==1.3.24
           unzip -o -q /tmp/whl/*.whl -d /tmp/whl/x
+
+          echo "---- 包内非 onnx 文件 ----"
+          find /tmp/whl/x -type f ! -name "*.onnx" | head -40
+
           DET=$(find /tmp/whl/x -name "*det*infer*.onnx" | head -1)
           REC=$(find /tmp/whl/x -name "*rec*infer*.onnx" | head -1)
-          DICT=$(find /tmp/whl/x -name "ppocr_keys_v1.txt" | head -1)
           echo "DET=$DET"
           echo "REC=$REC"
+          test -n "$DET"
+          test -n "$REC"
+
+          DICT=$(find /tmp/whl/x -name "ppocr_keys_v1.txt" | head -1)
+          if [ -z "$DICT" ]; then
+            DICT=$(find /tmp/whl/x -iname "*keys*.txt" | head -1)
+          fi
+          if [ -z "$DICT" ]; then
+            DICT=$(find /tmp/whl/x -iname "*dict*.txt" | head -1)
+          fi
+          if [ -z "$DICT" ]; then
+            echo "包内没有字典，从 PaddleOCR 官方仓库下载"
+            curl -fL --retry 3 -o /tmp/whl/ppocr_keys_v1.txt \
+              https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/ppocr_keys_v1.txt
+            DICT=/tmp/whl/ppocr_keys_v1.txt
+          fi
           echo "DICT=$DICT"
-          test -n "$DET" && test -n "$REC" && test -n "$DICT"
+          test -f "$DICT"
+          echo "字典行数：$(wc -l < "$DICT")"
+
           cp -f "$DET"  "$DEST/ch_PP-OCRv4_det_infer.onnx"
           cp -f "$REC"  "$DEST/ch_PP-OCRv4_rec_infer.onnx"
           cp -f "$DICT" "$DEST/ppocr_keys_v1.txt"
+
           test -f "$DEST/ch_PP-OCRv4_det_infer.onnx"
           test -f "$DEST/ch_PP-OCRv4_rec_infer.onnx"
           test -f "$DEST/ppocr_keys_v1.txt"
+          test -f "$DEST/ort.min.js"
           ls -lh "$DEST"
 
       - name: Build debug APK
