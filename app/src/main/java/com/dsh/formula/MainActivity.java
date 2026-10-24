@@ -12,7 +12,6 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
@@ -24,15 +23,16 @@ import androidx.core.content.FileProvider;
 import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.IOException;
 
 /**
- * 一个最小的 WebView 外壳：
- * - 用 WebViewAssetLoader 通过 https://appassets.androidplatform.net/ 提供 assets 里的页面
- *   → 页面处于“安全上下文”，navigator.clipboard 可用，CDN 请求也不会被拦
- * - 接管 <input type="file" capture> 的请求，直接调系统相机
- * - 返回键先退回网页历史，再退出 App
+ * WebView 外壳：
+ * - 用 WebViewAssetLoader 通过 https://appassets.androidplatform.net/ 提供 assets 页面（安全上下文）
+ * - 接管 <input type="file" capture> → 系统相机
+ * - 接收其它 App「分享」过来的文本（白描/布丁识别结果）→ 自动填进页面
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -40,11 +40,12 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private WebViewAssetLoader assetLoader;
-
-    /** 网页 <input type="file"> 的回调，等用户拍完/选完图再回填 */
     private ValueCallback<Uri[]> fileCallback;
-    /** 拍照时预先生成的目标文件 Uri */
     private Uri pendingCameraUri;
+
+    /** 页面还没加载好时，先把分享来的文字存着 */
+    private String pendingShareText = null;
+    private boolean pageReady = false;
 
     private final ActivityResultLauncher<Intent> filePicker =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -53,10 +54,8 @@ public class MainActivity extends AppCompatActivity {
 
                 if (result.getResultCode() == RESULT_OK) {
                     if (data != null && data.getData() != null) {
-                        // 相册选择
                         uris = new Uri[]{data.getData()};
                     } else if (pendingCameraUri != null) {
-                        // 拍照：相机 App 把图写进了 EXTRA_OUTPUT，这里没有 data
                         uris = new Uri[]{pendingCameraUri};
                     } else if (data != null && data.getClipData() != null) {
                         int n = data.getClipData().getItemCount();
@@ -88,13 +87,13 @@ public class MainActivity extends AppCompatActivity {
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);        // localStorage 存草稿，必须开
+        s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
-        s.setAllowFileAccess(false);         // 页面走 assets，不需要文件访问
-        s.setAllowContentAccess(true);       // 相册返回的 content:// 需要
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(true);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(false);
-        s.setTextZoom(100);                  // 不跟随系统字体放大，避免表格挤爆
+        s.setTextZoom(100);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
 
@@ -110,10 +109,8 @@ public class MainActivity extends AppCompatActivity {
                 String host = url.getHost();
                 String scheme = url.getScheme() == null ? "" : url.getScheme();
 
-                // 自己的页面：正常加载
                 if ("appassets.androidplatform.net".equals(host)) return false;
 
-                // 电话/短信/邮件交给系统
                 if (scheme.equals("tel") || scheme.equals("sms") || scheme.equals("mailto")) {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, url));
@@ -122,16 +119,23 @@ public class MainActivity extends AppCompatActivity {
                     }
                     return true;
                 }
-
-                // 其它外链不开在壳里，避免跑偏
                 return true;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                pageReady = true;
+                if (pendingShareText != null) {
+                    injectText(pendingShareText);
+                    pendingShareText = null;
+                }
             }
 
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 super.onReceivedError(view, errorCode, description, failingUrl);
-                Toast.makeText(MainActivity.this,
-                        "页面加载失败：" + description, Toast.LENGTH_LONG).show();
+                Toast.makeText(MainActivity.this, "页面加载失败：" + description, Toast.LENGTH_LONG).show();
             }
         });
 
@@ -160,7 +164,6 @@ public class MainActivity extends AppCompatActivity {
                         intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                                 | Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     } catch (IOException | IllegalArgumentException e) {
-                        // 建不了临时文件就退回相册
                         pendingCameraUri = null;
                         intent = buildGalleryIntent(params);
                     }
@@ -184,9 +187,10 @@ public class MainActivity extends AppCompatActivity {
         });
 
         webView.loadUrl(START_URL);
-
-        // 方便用 Chrome 的 chrome://inspect 调试；个人使用无需关闭
         WebView.setWebContentsDebuggingEnabled(true);
+
+        // 页面可以通过 window.AndroidApp.shareText(...) 调起系统分享
+        webView.addJavascriptInterface(new ShareBridge(), "AndroidApp");
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -199,6 +203,67 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+
+        handleShareIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleShareIntent(intent);
+    }
+
+    /** 从「分享」里取出文字，交给页面 */
+    private void handleShareIntent(Intent intent) {
+        if (intent == null) return;
+        if (!Intent.ACTION_SEND.equals(intent.getAction())) return;
+
+        String type = intent.getType();
+        if (type == null || !type.startsWith("text/")) return;
+
+        CharSequence cs = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+        String text = cs == null ? null : cs.toString();
+        if (text == null || text.trim().isEmpty()) {
+            Toast.makeText(this, "分享内容为空", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (pageReady && webView != null) {
+            injectText(text);
+        } else {
+            pendingShareText = text;
+        }
+    }
+
+    /** 把文字注入页面：window.receiveOCRResult("...") */
+    private void injectText(String text) {
+        if (webView == null) return;
+        String quoted = JSONObject.quote(text);
+        String js = "window.receiveOCRResult(" + quoted + ");";
+        webView.evaluateJavascript(js, null);
+        Toast.makeText(this, "已接收分享的文字", Toast.LENGTH_SHORT).show();
+    }
+
+    /** 页面 → 原生：分享文本 */
+    private class ShareBridge {
+        @android.webkit.JavascriptInterface
+        public void shareText(final String text) {
+            if (text == null || text.trim().isEmpty()) return;
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Intent i = new Intent(Intent.ACTION_SEND);
+                        i.setType("text/plain");
+                        i.putExtra(Intent.EXTRA_TEXT, text);
+                        startActivity(Intent.createChooser(i, "分享到"));
+                    } catch (ActivityNotFoundException e) {
+                        Toast.makeText(MainActivity.this, "没有可分享的应用", Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
+        }
     }
 
     private Intent buildGalleryIntent(WebChromeClient.FileChooserParams params) {
@@ -209,9 +274,8 @@ public class MainActivity extends AppCompatActivity {
         if (params != null) {
             String[] accept = params.getAcceptTypes();
             if (accept != null && accept.length > 0 && accept[0] != null && !accept[0].isEmpty()) {
-                String type = accept[0];
-                // 页面里是 image/*，这里做个白名单保护，其它类型统一按图片处理
-                if (type.startsWith("image/")) intent.setType(type);
+                String t = accept[0];
+                if (t.startsWith("image/")) intent.setType(t);
             }
         }
         return intent;
@@ -232,9 +296,6 @@ public class MainActivity extends AppCompatActivity {
             fileCallback = null;
         }
         if (webView != null) {
-            webView.setWebChromeClient(null);
-            webView.setWebViewClient(new WebViewClient());
-            webView.loadUrl("about:blank");
             webView.destroy();
             webView = null;
         }
